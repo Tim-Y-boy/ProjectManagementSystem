@@ -1,0 +1,62 @@
+version: "3.9"
+
+services:
+  db:
+    # PostgreSQL 15
+    image: postgres:15
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-tracker}
+      POSTGRES_USER: ${POSTGRES_USER:-tracker}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    ports:
+      # 本机使用 5433 端口，容器内使用 5432
+      - "127.0.0.1:5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tracker} -d ${POSTGRES_DB:-tracker}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    env_file: .env
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USERNAME: ${POSTGRES_USER:-tracker}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      DB_DATABASE: ${POSTGRES_DB:-tracker}
+      PORT: 8081
+      LOG_DIR: /app/logs
+      LOG_MAX_SIZE_MB: ${LOG_MAX_SIZE_MB:-20}
+      LOG_RETENTION_DAYS: ${LOG_RETENTION_DAYS:-30}
+      ERROR_LOG_RETENTION_DAYS: ${ERROR_LOG_RETENTION_DAYS:-60}
+      SLOW_REQUEST_MS: ${SLOW_REQUEST_MS:-1000}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./logs/api:/app/logs
+      - ./uploads:/app/uploads
+    ports:
+      - "8081:8081"
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    ports:
+      # Web 入口端口
+      - "8088:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  db_data:
