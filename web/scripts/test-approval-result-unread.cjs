@@ -1,0 +1,23 @@
+const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),ts=require('typescript'),vue=require('vue');
+test('approval result dots persist reads, track decisions and isolate accounts',()=>{
+  const auth=vue.reactive({user:{id:1,feishuUserId:'one'},readOnly:false}),storage=new Map();
+  const context={...vue,exports:{},defineStore:(_,setup)=>setup,useAuthStore:()=>auth,localStorage:{getItem:k=>storage.get(k),setItem:(k,v)=>storage.set(k,v)}};
+  const source=fs.readFileSync(require('node:path').join(__dirname,'../src/stores/approvalResultUnread.ts'),'utf8').replace(/^import .*;\r?$/gm,'');
+  vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText,context);
+  storage.set('approval-result-seen:one',JSON.stringify({'old-read':'old-format'}));
+  const store=context.exports.useApprovalResultUnreadStore();
+  const row={key:'weekly-amendment-1',kind:'weekly-amendment',status:'pending',requestedAt:'2026-11-06'};
+  const historical={...row,key:'historical',status:'approved',reviewedAt:'2026-10-20'};
+  store.update([row,historical],1);assert.equal(store.unread.value,false);
+  assert.equal(store.isUnread(historical),false,'existing approved results are silently baselined');
+  row.status='rejected';row.reviewedAt='2026-11-07';store.update([row],1);
+  assert.equal(store.unread.value,true);assert.equal(store.unreadState('rejected'),true);assert.equal(store.unreadState('approved'),false);
+  store.markSeen(row);assert.equal(store.unread.value,false);
+  const restored=context.exports.useApprovalResultUnreadStore();restored.update([row],1);assert.equal(restored.unread.value,false);
+  store.update([row,{...row,key:'weekly-amendment-2'}],1);assert.equal(store.unread.value,true);
+  auth.user={id:2,feishuUserId:'two'};store.update([row],1);assert.equal(store.unread.value,false);
+  store.update([row],2);assert.equal(store.unread.value,false,'new account starts without historical dots');
+  store.update([row,{...row,key:'new-result'}],2);assert.equal(store.unread.value,true);
+  auth.user={id:1,feishuUserId:'one'};
+  store.update([row,{...row,key:'offline-result'}],1);assert.equal(store.unread.value,true,'later results survive logout and reload');
+});
