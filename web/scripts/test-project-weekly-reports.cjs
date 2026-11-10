@@ -241,3 +241,40 @@ test('comparison shows only changed fields and preserves deletion as an explicit
  assert.equal(page.changes.value.length,2);assert.equal(page.changes.value[0].key,'overallStatus');assert.equal(page.changes.value[1].key,'risks');
  assert.equal(page.text('overallStatus','risk'),'存在风险');assert.equal(page.text('risks',''),'未填写');
 });
+
+test('week picker prevents future weeks and disables dates by whole week', () => {
+ const props=vue.reactive({modelValue:'2026-11-09',disabled:false});
+ const emitted=[];
+ const picker=component('components/weekly/WeeklyWeekSelect.vue','select, disabledDate, nextDisabled',{
+  defineProps:()=>props,defineEmits:()=> (...args)=>emitted.push(args),currentWeeklyMonday:()=> '2026-11-09',
+ });
+ assert.equal(picker.nextDisabled.value,true);
+ picker.select('2026-11-16');assert.equal(emitted.length,0);
+ assert.equal(picker.disabledDate(new Date(2026,10,15)),false,'Sunday still belongs to current week');
+ assert.equal(picker.disabledDate(new Date(2026,10,16)),true);
+ props.modelValue='2026-11-02';assert.equal(picker.nextDisabled.value,false);
+ picker.select('2026-11-09');assert.deepEqual(emitted[0],['update:modelValue','2026-11-09']);
+ props.disabled=true;assert.equal(picker.nextDisabled.value,true);
+ picker.select('2026-10-26');assert.equal(emitted.length,1);
+ const template=parse(read('components/weekly/WeeklyWeekSelect.vue')).descriptor.template.content;
+ assert.match(template,/:disabled="nextDisabled"[^>]*aria-label="下一周"/);
+ assert.match(template,/:disabled-date="disabledDate"/);
+});
+
+test('future-week deep links redirect to current week before any API request', async () => {
+ for(const projectId of [undefined,'42']) {
+  const calls=[],replacements=[];
+  const route={path:'/daily-report',query:{tab:'weekly',projectId,weekStart:'2026-11-16',fromHistory:'1'}};
+  const page=component('views/ProjectWeeklyReports.vue','load,loading,error',{
+   currentWeeklyMonday:()=> '2026-11-09',useRoute:()=>route,
+   useRouter:()=>({replace:async value=>replacements.push(value)}),useAuthStore:()=>({has:()=>false}),watch:()=>{},
+   projectWeeklyReportsApi:{detail:async()=>calls.push('detail'),list:async()=>calls.push('list')},
+  });
+  await page.load();
+  assert.equal(calls.length,0);assert.equal(replacements.length,1);
+  assert.equal(replacements[0].query.weekStart,'2026-11-09');
+  assert.equal(replacements[0].query.projectId,projectId);
+  assert.equal(replacements[0].query.fromHistory,'1');
+  assert.equal(page.error.value,'');assert.equal(page.loading.value,false);
+ }
+});

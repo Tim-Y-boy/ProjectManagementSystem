@@ -46,7 +46,12 @@ async function load() {
   try {
     const projectId = Number(route.query.projectId) || undefined;
     const requestedWeek = typeof route.query.weekStart === 'string' ? weeklyMonday(route.query.weekStart) : '';
-    week.value = requestedWeek || currentWeeklyMonday();
+    const currentWeek = currentWeeklyMonday();
+    if (requestedWeek > currentWeek) {
+      await router.replace({ path: route.path, query: { ...route.query, weekStart: currentWeek } });
+      return;
+    }
+    week.value = requestedWeek || currentWeek;
     if (projectId && requestedWeek && !allWeeks.value) {
       const value = await projectWeeklyReportsApi.detail(projectId, requestedWeek);
       if (token === generation) { detail.value = value; unread.markSeen(value); }
