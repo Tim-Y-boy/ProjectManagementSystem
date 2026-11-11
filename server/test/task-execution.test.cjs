@@ -18,11 +18,12 @@ function fixture({ status = 'todo', locked = true, ownerId = '16', owners = [], 
   service.weeklyProgress = { missingWeeksForTask: async () => [] };
   service.tasks = { findOne: async () => task, count: async () => children, save: async (row) => row };
   service.projects = { findOne: async () => ({ id: 18, ownerId, deptId: 4, planLocked: locked, status: projectStatus, closureState }) };
-  service.departmentsRepo = { findOne: async () => ({ name: '管理办公室', headUserId: '50' }) };
+  service.departmentsRepo = { findOne: async () => ({ name: '总经办', headUserId: '50' }) };
   service.projectOwners = { count: async ({ where }) => Number(owners.map(String).includes(String(where.userId))) };
   service.assignees = { find: async ({ where }) => (where.role === 'assignee' ? ['71', '219'] : ['30']).map(userId => ({ userId })) };
   service.dailyUpdates = {
     count: async () => progress,
+    find: async () => progress ? [{ id: 1, taskId: task.id }] : [],
     create: (row) => row,
     save: async (row) => { updates.push(row); return { ...row, id: 1 }; },
   };
@@ -31,6 +32,10 @@ function fixture({ status = 'todo', locked = true, ownerId = '16', owners = [], 
   service.refreshParentStatus = async (...args) => refreshed.push(args);
   service.notifyTaskSubmittedForAcceptance = async () => {};
   service.notifyTaskAcceptanceResult = async () => {};
+  service.tasks.findOneBy = async () => task;
+  service.tasks.manager = { transaction: callback => callback({ query: async () => [], getRepository: entity => ({
+    Task: service.tasks, TaskDailyUpdate: service.dailyUpdates, TaskAsset: service.assets,
+  }[entity.name]) }) };
   return { service, task, logs, refreshed, updates };
 }
 
@@ -267,7 +272,7 @@ test('local final-approver override is honored without granting other leaders pe
 });
 
 function withDeleteTransaction(f) {
-  f.service.tasks.manager = { transaction: callback => callback({ getRepository: entity => ({
+  f.service.tasks.manager = { transaction: callback => callback({ query: async () => [], getRepository: entity => ({
     Task: f.service.tasks, TaskDailyUpdate: f.service.dailyUpdates, TaskAsset: f.service.assets,
     TaskLog: { create: row => row, save: async row => f.logs.push([f.task, row.operatorId, row.action, row.payload]) },
   }[entity.name]) }) };

@@ -8,20 +8,21 @@ const choices = computed(() => props.assets.filter(asset => asset.filePath || as
 
 <template>
   <div class="existing-assets">
-    <label class="existing-assets-label">关联已上传的资料</label>
+    <label class="existing-assets-label">关联项目已有资料</label>
     <el-select
       :model-value="modelValue" multiple filterable collapse-tags collapse-tags-tooltip :max-collapse-tags="3"
-      :disabled="disabled || !choices.length" placeholder="选择本任务已上传的文件或链接"
-      aria-label="关联已上传的资料" class="existing-assets-select"
+      :disabled="disabled || !choices.length" placeholder="选择项目已上传的文件或链接"
+      aria-label="关联项目已有资料" class="existing-assets-select"
       @update:model-value="emit('update:modelValue', $event)"
     >
       <el-option v-for="asset in choices" :key="asset.id" :value="Number(asset.id)"
-        :label="assetDisplayTitle(asset)" :disabled="assetLinksProgress(asset, updateId)">
+        :label="[assetDisplayTitle(asset), asset.sourceTaskTitle].filter(Boolean).join(' · ')" :disabled="assetLinksProgress(asset, updateId)">
         <span>{{ assetDisplayTitle(asset) }}</span>
+        <small v-if="asset.sourceTaskTitle" class="existing-assets-kind">来源：{{ asset.sourceTaskTitle }}</small>
         <small class="existing-assets-kind">{{ assetLinksProgress(asset, updateId) ? '本条已关联' : assetSourceLabel(asset) }}</small>
       </el-option>
     </el-select>
-    <p class="existing-assets-help">{{ choices.length ? '复用同一份资料，无需重复上传；选择后随本次进展保存。' : '本任务暂无已有资料，可先上传文件或添加链接。' }}</p>
+    <p class="existing-assets-help">{{ choices.length ? '复用同一份资料，无需重复上传；选择后随本次进展保存。' : '本项目暂无已有资料，可先上传文件或添加链接。' }}</p>
   </div>
 </template>
 

@@ -5,6 +5,7 @@ import { Document, Refresh, Search } from '@element-plus/icons-vue';
 import { toNumericId } from '@/utils/ids';
 import { useRefreshStore, type RefreshSnapshot } from '@/stores/refresh';
 import SmartSelect from '@/components/SmartSelect.vue';
+import TaskAssetVersionActions from '@/components/TaskAssetVersionActions.vue';
 import { LOG_ACTION_META as ACTION_META, logActionMeta, logNote } from '@/utils/task-log';
 
 const refreshStore = useRefreshStore();
@@ -369,6 +370,8 @@ onActivated(() => {
         <div class="detail-action">
           <span>操作</span>
           <el-tag :type="logActionMeta(selectedLog).type" size="small">{{ logActionMeta(selectedLog).label }}</el-tag>
+          <TaskAssetVersionActions v-if="selectedLog.action === 'task_asset_update' && selectedLog.payload?.assetId && selectedLog.taskId" history-only
+            :task-id="Number(selectedLog.taskId)" :asset="{ id: selectedLog.payload.assetId, filePath: true, title: selectedLog.payload.after?.originalName }" />
         </div>
 
         <div v-if="selectedLog.fromStatus" class="detail-action">

@@ -12,6 +12,21 @@ function setup(){
  vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2021}}).outputText,{exports:{},Blob,axios,ElMessage:{error:m=>messages.push(m)},useAuthStore:()=>auth,localStorage:{getItem:()=>token,removeItem:()=>token=''},location:{pathname:'/tasks',replace:p=>redirects.push(p)}});
  return {auth,messages,redirects,before,success,failure,setToken:t=>{token=t;auth.token=t}};
 }
+
+test('duplicate material errors can be handled inline without hiding other failures',async()=>{
+ for(const [inline,status,message,silent] of [[true,409,'该文件与任务已提交的文件重名',true],[false,409,'该文件与任务已提交的文件重名',false],[true,403,'无权保存',false],[true,409,'资料版本已更新',false]]) {
+  const s=setup(),cfg=s.before({url:'/tasks/59/progress-save',headers:{},inlineDuplicateName:inline});
+  await assert.rejects(s.failure({config:cfg,response:{status,data:{message}}}),e=>e.inlineDuplicateName===silent && e.messageShown===!silent);
+  assert.equal(s.messages.length,silent?0:1);
+ }
+});
+test('optional missing route is silent, but real 404s and permissions still show errors',async()=>{
+ for(const [status,message,missing] of [[404,'Cannot GET /api/tasks/80/project-assets',true],[404,'任务不存在',false],[403,'无权查看',false]]){
+  const s=setup(),cfg=s.before({url:'/tasks/80/project-assets',headers:{},allowMissingRoute:true});
+  await assert.rejects(s.failure({config:cfg,response:{status,data:{message}}}),e=>e.missingRoute===missing);
+  assert.equal(s.messages.length,missing?0:1);
+ }
+});
 test('logout silently cancels active responses and blocks new private requests',async()=>{
  const s=setup(),cfg=s.before({url:'/tasks',headers:{}});s.auth.isLoggingOut=true;
  assert.throws(()=>s.before({url:'/dashboard/my-todo',headers:{}}),e=>e.cancelled&&e.messageShown);

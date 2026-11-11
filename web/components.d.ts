@@ -83,6 +83,7 @@ declare module 'vue' {
     SmartSelect: typeof import('./src/components/SmartSelect.vue')['default']
     TaskApprovalDetail: typeof import('./src/components/TaskApprovalDetail.vue')['default']
     TaskApprovalPanel: typeof import('./src/components/todo/TaskApprovalPanel.vue')['default']
+    TaskAssetVersionActions: typeof import('./src/components/TaskAssetVersionActions.vue')['default']
     TaskCompletionTag: typeof import('./src/components/TaskCompletionTag.vue')['default']
     TaskMaterialLink: typeof import('./src/components/TaskMaterialLink.vue')['default']
     TaskProgressWeek: typeof import('./src/components/TaskProgressWeek.vue')['default']

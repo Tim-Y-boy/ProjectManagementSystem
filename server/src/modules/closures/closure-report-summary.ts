@@ -1,4 +1,4 @@
-import { reportDate, reportModel } from './closure-report-model';
+import { reportDate, reportModel, reportAssetBelongsToTask } from './closure-report-model';
 
 const day = (v:any) => typeof v==='string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && reportDate(v)===v ? v : null;
 const plain = (v:any) => String(v||'').trim();
@@ -16,10 +16,10 @@ export function executiveReport(m:ReturnType<typeof reportModel>) {
     id:g.id,title:g.title,
     tasks:g.tasks.map(t=>({...t,latest:latest(t)})),
     completed:g.tasks.filter(t=>t.status==='done').length,
-    assets:m.assets.filter((a:any)=>g.tasks.some(t=>String(t.id)===String(a.task_id))||String(a.task_id)===g.id),
+    assets:m.assets.filter((a:any)=>g.tasks.some(t=>reportAssetBelongsToTask(a,t.id,m.updates))||String(a.task_id)===g.id),
   }));
   const activeIds=new Set((m.data.tasks||[]).filter((t:any)=>t.status!=='cancelled').map((t:any)=>String(t.id)));
-  const outcomeAssets=m.assets.filter((a:any)=>a.task_id==null||activeIds.has(String(a.task_id)));
+  const outcomeAssets=m.assets.filter((a:any)=>a.task_id==null||[...activeIds].some(id=>reportAssetBelongsToTask(a,id,m.updates)));
   const projectDeadline=day(m.data.plannedEnd||m.data.project?.end_at);
   const completionDay=reportDate(m.data.completedAt);
   const projectLateDays=projectDeadline&&completionDay?Math.max(0,Math.round((Date.parse(completionDay)-Date.parse(projectDeadline))/86400000)):null;

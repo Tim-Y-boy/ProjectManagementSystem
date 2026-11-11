@@ -8,12 +8,17 @@ const draft = { workDate: '2026-10-08', content: '完成现场确认' };
 
 function fixture({ taskStatus = 'doing', frozen = false, parent = false, rows = [], materials = [], fail = '' } = {}) {
   let state = { Task: [{ id: 531, projectId: 18, parentId: null, status: taskStatus, creatorId: 1, assigneeId: 1 }],
-    TaskDailyUpdate: structuredClone(rows), TaskAsset: structuredClone(materials), TaskLog: [] };
+    TaskDailyUpdate: structuredClone(rows), TaskAsset: structuredClone(materials), TaskAssetVersion: [], TaskLog: [] };
   let nextId = 100;
+  const matches = (row, where) => Object.entries(where).every(([key,value]) => {
+    const actual = key === 'projectId' && row[key] == null ? 18 : row[key];
+    return value?._type === 'in' ? value._value.some(v => String(actual) === String(v)) : String(actual) === String(value);
+  });
   const repo = name => ({
-    findOne: async ({ where }) => structuredClone(state[name].find(row => Object.entries(where).every(([key, value]) => String(row[key]) === String(value))) || null),
-    find: async ({ where }) => structuredClone(state[name].filter(row => Object.entries(where).every(([key, value]) => String(row[key]) === String(value)))),
-    count: async () => Number(parent), create: row => ({ ...row }),
+    findOne: async ({ where }) => structuredClone(state[name].find(row => matches(row,where)) || null),
+    findOneBy: async where => structuredClone(state[name].find(row => matches(row,where)) || null),
+    find: async ({ where }) => structuredClone(state[name].filter(row => matches(row,where))),
+    count: async () => name === 'Task' ? Number(parent) : state[name].length, create: row => ({ ...row }),
     save: async row => {
       if (name === fail) throw Error('injected storage failure');
       if (!row.id) row.id = nextId++;
@@ -23,7 +28,7 @@ function fixture({ taskStatus = 'doing', frozen = false, parent = false, rows = 
     },
     delete: async id => { state[name] = state[name].filter(row => String(row.id) !== String(id)); },
   });
-  const manager = { getRepository: entity => repo(entity.name), transaction: async callback => {
+  const manager = { query: async () => [], getRepository: entity => repo(entity.name), transaction: async callback => {
     const before = structuredClone(state);
     try { return await callback(manager); } catch (error) { state = before; throw error; }
   } };
@@ -188,8 +193,8 @@ test('one existing file can serve several progress entries without duplicating t
   await f.service.updateDailyUpdate(admin, 531, first.id, draft);
   assert.equal(f.state.TaskDailyUpdate[0].noMaterialReason, null);
 });
-test('existing asset selection rejects missing, cross-task and invalid materials without writes', async () => {
-  for (const material of [null, { id: 5, taskId: 999, url: 'https://example.com' }, { id: 5, taskId: 531, url: 'javascript:bad' }]) {
+test('existing asset selection rejects missing, cross-project and invalid materials without writes', async () => {
+  for (const material of [null, { id: 5, taskId: 999, projectId: 99, url: 'https://example.com' }, { id: 5, taskId: 531, url: 'javascript:bad' }]) {
     const f = fixture({ materials: material ? [material] : [] });
     await assert.rejects(f.service.saveProgress(admin, 531, { ...draft, existingAssetIds: [5], noMaterialReason: '原因' }), /资料/);
     assert.equal(f.state.TaskDailyUpdate.length, 0);

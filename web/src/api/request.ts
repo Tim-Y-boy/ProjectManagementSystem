@@ -68,9 +68,16 @@ request.interceptors.response.use(
       localStorage.removeItem('token');
       if (!location.pathname.endsWith('/login')) location.replace(`${import.meta.env.BASE_URL || '/'}login`);
     }
-    ElMessage.error(msg || '网络错误');
-    const error = new Error(msg || '网络错误') as Error & { messageShown?: boolean; status?: number };
-    error.messageShown = true;
+    const missingRoute = status === 404 && err.config?.allowMissingRoute === true
+      && typeof rawMessage === 'string' && rawMessage.startsWith('Cannot GET ')
+      && rawMessage.split('?')[0].endsWith(err.config.url);
+    const inlineDuplicateName = err.config?.inlineDuplicateName === true && status === 409
+      && (body?.code === 'TASK_ASSET_DUPLICATE_NAME' || (typeof msg === 'string' && msg.includes('文件重名')));
+    if (!missingRoute && !inlineDuplicateName) ElMessage.error(msg || '网络错误');
+    const error = new Error(msg || '网络错误') as Error & { messageShown?: boolean; status?: number; missingRoute?: boolean; inlineDuplicateName?: boolean };
+    error.inlineDuplicateName = inlineDuplicateName;
+    error.messageShown = !missingRoute && !inlineDuplicateName;
+    error.missingRoute = missingRoute;
     error.status = status;
     return Promise.reject(error);
   },

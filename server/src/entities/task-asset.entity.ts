@@ -5,6 +5,9 @@ export class TaskAsset {
   @PrimaryGeneratedColumn({ type: 'bigint' })
   id: number;
 
+  @Column({ name: 'current_version_id', type: 'bigint', nullable: true })
+  currentVersionId: number | null;
+
   @Index()
   @Column({ name: 'project_id', type: 'bigint' })
   projectId: number;

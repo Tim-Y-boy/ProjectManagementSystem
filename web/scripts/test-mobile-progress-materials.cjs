@@ -22,7 +22,7 @@ function fixture({ status = 'doing', uid = 71, locked = true, frozen = false, qu
   let fails = failSave;
   const row = { id: 531, status, planLocked: locked, projectStatus: 'active', projectClosureState: frozen ? 'pending' : 'none',
     assigneeId: 71, creatorId: 71, acceptorId: 30, projectOwnerId: 16, children: [] };
-  const api = { one: async () => row, dailyUpdates: async () => [], assets: async () => [],
+  const api = { one: async () => row, dailyUpdates: async () => [], assets: async () => [], projectAssets: async () => [],
     saveProgress: async (id, body) => {
       const payload = JSON.parse(body.get('payload'));
       const files = body.getAll('files');
@@ -349,7 +349,7 @@ test('mobile existing-file selection survives failures and cancelled navigation,
   await f.evaluate('load()');
   f.fill();
   f.evaluate("materialChoice.value = 'yes'");
-  f.evaluate("assets.value = [{ id: 5, filePath: 'uploads/proof.pdf', dailyUpdateId: 70 }]; selectedExistingAssetIds.value = [5]");
+  f.evaluate("projectAssets.value = [{ id: 5, filePath: 'uploads/proof.pdf', dailyUpdateId: 70 }]; selectedExistingAssetIds.value = [5]");
   await f.evaluate('addUpdate()');
   assert.deepEqual(requests(f)[0][2].existingAssetIds, [5]);
   assert.equal(f.evaluate('selectedExistingAssetIds.value.length'), 1);

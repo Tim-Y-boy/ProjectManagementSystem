@@ -2,6 +2,20 @@ const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const {reportModel}=require('../src/modules/closures/closure-report-model');
 const {renderClosureReport}=require('../src/modules/closures/closure-report');
+
+test('cross-task shared files appear beside each linked progress and count once',()=>{
+ const r=fixture();
+ r.report.assets[0].linked_daily_update_ids=[3];
+ r.report.assets[0].current_version_id=12;
+ const before=JSON.stringify(r);
+ const model=reportModel(r);
+ assert.equal(model.tasks.find(t=>t.id===4).updates[0].assets[0]?.id,9);
+ assert.equal(model.tasks.find(t=>t.id===4).assets[0]?.current_version_id,12);
+ assert.equal(model.assets.length,1);
+ const {executiveReport}=require('../src/modules/closures/closure-report-summary');
+ assert.equal(executiveReport(model).results.find(g=>g.id==='4').assets.length,1);
+ assert.equal(JSON.stringify(r),before);
+});
 const task=(id,parent_id,completed_at='2026-09-15T08:00:00Z')=>({id,parent_id,title:'任务'+id,status:'done',start_at:'2026-09-01',due_at:'2026-09-15',completed_at,participants:[{name:'执行人甲',role:'assignee'}]});
 const update=(id,task_id,status='normal')=>({id,task_id,work_date:'2026-09-14',created_at:'2026-10-09T08:00:00Z',status,content:'进展'+id,no_material_reason:'过程性工作'});
 function fixture(){return {id:7,status:'approved',requested_at:'2026-10-09T08:00:00Z',report:{project:{name:'结项测试',start_at:'2026-09-01'},owners:[],tasks:[task(1,null),task(2,1),task(3,1,'2026-10-09T08:00:00Z'),task(4,null,'2026-10-09T08:00:00Z'),{...task(5,null),status:'cancelled'}],updates:[update(1,3,'exempted'),update(2,3,'supplemented'),update(3,4,'exempted')],assets:[{id:9,task_id:3,daily_update_id:2,title:'会议记录',url:'https://example.com/doc'}],delays:[],changes:[],plannedEnd:'2026-09-15',completedAt:'2026-10-09T08:00:00Z',lateDays:24}};}

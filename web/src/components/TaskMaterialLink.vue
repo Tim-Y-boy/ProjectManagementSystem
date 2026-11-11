@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { assetDisplayTitle, assetLinkUrl, type TaskAssetLike } from '@/utils/task-assets';
 
-defineProps<{ asset: TaskAssetLike }>();
+defineProps<{ asset: TaskAssetLike; hideAction?: boolean; versionNo?: number | string }>();
 defineEmits<{ open: [asset: TaskAssetLike] }>();
 </script>
 
@@ -9,11 +9,12 @@ defineEmits<{ open: [asset: TaskAssetLike] }>();
   <a v-if="assetLinkUrl(asset)" class="material-link" :href="assetLinkUrl(asset)" target="_blank" rel="noopener noreferrer" :title="asset.url || undefined">
     <span class="material-link-icon" aria-hidden="true">↗</span>
     <span class="material-link-name">{{ assetDisplayTitle(asset) }}</span>
-    <span class="material-link-action">打开<span class="sr-only">（新窗口）</span></span>
+    <span v-if="!hideAction" class="material-link-action">打开<span class="sr-only">（新窗口）</span></span>
   </a>
   <button v-else type="button" class="material-link" @click="$emit('open', asset)">
     <span class="material-link-name">{{ assetDisplayTitle(asset) }}</span>
-    <span class="material-link-action">查看</span>
+    <span v-if="versionNo" class="material-version" :aria-label="`当前版本 v${versionNo}`">v{{ versionNo }}</span>
+    <span v-if="!hideAction" class="material-link-action">查看</span>
   </button>
 </template>
 
@@ -24,5 +25,6 @@ defineEmits<{ open: [asset: TaskAssetLike] }>();
 .material-link-name { min-width: 0; overflow-wrap: anywhere; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
 .material-link-action { margin-left: auto; flex-shrink: 0; font-size: 12px; }
 .material-link-icon { flex-shrink: 0; }
+.material-version { flex-shrink: 0; color: #7d8d89; font-size: 12px; font-weight: 400; white-space: nowrap; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 </style>

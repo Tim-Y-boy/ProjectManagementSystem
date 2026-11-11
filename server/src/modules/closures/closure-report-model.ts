@@ -8,6 +8,10 @@ export const reportDate = (value: any): string | null => {
   return new Intl.DateTimeFormat('en-CA', {timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(d);
 };
 const validDay = (v: any) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && Number.isFinite(Date.parse(v)) && new Date(v).toISOString().slice(0,10) === v;
+export function reportAssetBelongsToTask(asset: any, taskId: any, updates: any[]) {
+  return String(asset.task_id) === String(taskId)
+    || updates.some(update => String(update.task_id) === String(taskId) && assetLinksProgress(asset, update.id));
+}
 export const reportKinds = {ontime:'正常完成',late:'延期完成',supplement:'已确认合理补填',unknown:'依据不完整',unfinished:'未完成'};
 
 // 只使用本张报告的快照；不读取当前项目状态，不将父任务和子任务重复计数。
@@ -18,8 +22,8 @@ export function reportModel(request: any) {
   const parents = new Set(active.map((t: any) => String(t.parent_id)));
   const byId = new Map<string,any>(all.map((t: any) => [String(t.id),t]));
   const tasks = active.filter((t: any) => !parents.has(String(t.id))).map((t: any) => {
-    const progress = updates.filter((u: any) => String(u.task_id)===String(t.id)).map((u: any)=>({...u,assets:assets.filter((a:any)=>String(a.task_id)===String(t.id)&&assetLinksProgress(a,u.id))}));
-    const material = assets.filter((a: any)=>String(a.task_id)===String(t.id));
+    const progress = updates.filter((u: any) => String(u.task_id)===String(t.id)).map((u: any)=>({...u,assets:assets.filter((a:any)=>assetLinksProgress(a,u.id))}));
+    const material = assets.filter((a: any)=>reportAssetBelongsToTask(a,t.id,updates));
 
     const workDates=progress.map((u:any)=>u.work_date).filter(validDay).sort();
     const submitted=progress.map((u:any)=>u.created_at).filter((v:any)=>v&&Number.isFinite(new Date(v).getTime())).sort((a:any,b:any)=>Date.parse(a)-Date.parse(b));

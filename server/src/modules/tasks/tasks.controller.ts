@@ -432,6 +432,34 @@ export class TasksController {
     return this.tasks.listTaskAssets(u, id);
   }
 
+  @Get('tasks/:id/project-assets')
+  listProjectAssets(@CurrentUser() u: JwtPayload, @Param('id', ParseIntPipe) id: number) {
+    return this.tasks.listProjectAssets(u, id);
+  }
+
+  @Get('tasks/:id/assets/:assetId/versions')
+  listAssetVersions(@CurrentUser() u: JwtPayload, @Param('id', ParseIntPipe) id: number,
+    @Param('assetId', ParseIntPipe) assetId: number) {
+    return this.tasks.listTaskAssetVersions(u, id, assetId);
+  }
+
+  @Post('tasks/:id/assets/:assetId/versions')
+  @UseInterceptors(FileInterceptor('file', { dest: 'uploads/task-assets', limits: { fileSize: 50 * 1024 * 1024 } }))
+  updateAssetVersion(@CurrentUser() u: JwtPayload, @Param('id', ParseIntPipe) id: number,
+    @Param('assetId', ParseIntPipe) assetId: number, @UploadedFile() file: any, @Body() body: any) {
+    return this.tasks.updateTaskAssetVersion(u, id, assetId, file, body);
+  }
+
+  @Get('tasks/:id/assets/:assetId/versions/:versionId/download')
+  async downloadAssetVersion(@CurrentUser() u: JwtPayload, @Param('id', ParseIntPipe) id: number,
+    @Param('assetId', ParseIntPipe) assetId: number, @Param('versionId', ParseIntPipe) versionId: number,
+    @Res() res: Response) {
+    const { asset, stream } = await this.tasks.getTaskAssetVersionDownload(u, id, assetId, versionId);
+    res.setHeader('Content-Type', this.assetContentType(asset));
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(asset.originalName || asset.title || 'download')}`);
+    stream.pipe(res);
+  }
+
   @Post('tasks/:id/assets')
   createTaskAsset(
     @CurrentUser() u: JwtPayload,

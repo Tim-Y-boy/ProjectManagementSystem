@@ -14,6 +14,7 @@ import { buildNotifyCard, type NotifyBlock, type NotifyTask } from '../feishu/no
 import {
   Injectable,
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Logger,
   NotFoundException,
@@ -21,9 +22,9 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Cron } from '@nestjs/schedule';
-import { In, Not, Repository } from 'typeorm';
+import { EntityManager, In, Not, Repository } from 'typeorm';
 import { createReadStream, existsSync } from 'fs';
-import { unlink } from 'fs/promises';
+import { realpath, stat, unlink } from 'fs/promises';
 import { join, resolve, sep } from 'path';
 import { Category } from '../../entities/category.entity';
 import { Project } from '../../entities/project.entity';
@@ -37,6 +38,7 @@ import { Task } from '../../entities/task.entity';
 import { TaskLog } from '../../entities/task-log.entity';
 import { TaskAssignee } from '../../entities/task-assignee.entity';
 import { TaskAsset } from '../../entities/task-asset.entity';
+import { TaskAssetVersion } from '../../entities/task-asset-version.entity';
 import { TaskDailyUpdate } from '../../entities/task-daily-update.entity';
 import { User } from '../../entities/user.entity';
 import { JwtPayload } from '../auth/types';
@@ -45,6 +47,7 @@ import { HolidaysService } from '../holidays/holidays.service';
 import { config } from '../../config/config';
 import axios from 'axios';
 import { ClosuresService } from '../closures/closures.service';
+import { projectOperationManager } from '../closures/project-operation-context';
 import { reasonableSupplementDisabledReason } from './reasonable-supplement';
 import { WeeklyProgressService } from './weekly-progress.service';
 import {
@@ -516,7 +519,7 @@ export class TasksService implements OnModuleInit {
     return u.roles.includes('dept_head');
   }
 
-  // 纠正已完成任务：管理员或配置的管理办公室负责人，不向所有 leader 放开。
+  // 纠正已完成任务：管理员或配置的总经办负责人，不向所有 leader 放开。
   private async canReopenCompletedTask(u: JwtPayload): Promise<boolean> {
     if (u.readOnly) return false;
     if (u.roles.includes('admin')) return true;
@@ -525,7 +528,7 @@ export class TasksService implements OnModuleInit {
       const id = Number(override);
       return Number.isSafeInteger(id) && id > 0 && String(id) === String(u.userId);
     }
-    const office = await this.departmentsRepo.findOne({ where: { name: '管理办公室' } });
+    const office = await this.departmentsRepo.findOne({ where: { name: '总经办' } });
     return office?.headUserId != null && String(office.headUserId) === String(u.userId);
   }
 
@@ -630,6 +633,7 @@ export class TasksService implements OnModuleInit {
   }
 
   private async assertCanWriteTaskProcess(u: JwtPayload, task: Task) {
+    if (u.readOnly) throw new ForbiddenException('当前账号仅可读取资料');
     if (this.isAdminOrLeader(u)) return;
     const project = await this.projects.findOne({ where: { id: task.projectId } });
     if (this.canWriteDept(u, project?.deptId ?? null)) return;
@@ -945,10 +949,7 @@ export class TasksService implements OnModuleInit {
     const updateIds = updates.map((u) => u.id);
     const assets = taskIds.length
       ? await this.assets.find({
-          where: [
-            { taskId: In(taskIds) },
-            ...(updateIds.length ? [{ dailyUpdateId: In(updateIds) }] : []),
-          ],
+          where: { projectId: id },
           order: { createdAt: 'DESC' },
         })
       : [];
@@ -1829,17 +1830,17 @@ export class TasksService implements OnModuleInit {
     return rel > 0;
   }
 
-  // 终审人：管理办公室负责人，找不到则兜底任意启用的 admin（再 leader）
+  // 终审人：总经办负责人，找不到则兜底任意启用的 admin（再 leader）
   private async resolveFinalApproverId(): Promise<number | null> {
     // 本地联调：PLAN_FINAL_APPROVER_USER_ID 显式指定终审人（如 mock 领导），
-    // 不打扰真实管理负责人；不配置则回落"管理办公室"负责人。
+    // 不打扰真实总经理；不配置则回落"总经办"负责人。
     const overrideRaw = String(process.env.PLAN_FINAL_APPROVER_USER_ID || '').trim();
     const overrideId = overrideRaw ? Number(overrideRaw) : NaN;
     if (Number.isFinite(overrideId) && overrideId > 0) {
       const person = await this.users.findOne({ where: { id: overrideId } });
       return person?.isActive && !person.readOnly ? overrideId : null;
     }
-    const offices = await this.departmentsRepo.find({ where: { name: '管理办公室' } });
+    const offices = await this.departmentsRepo.find({ where: { name: '总经办' } });
     const candidates = new Set<number>();
     for (const gm of offices) {
       if (gm.headUserId == null) continue;
@@ -1847,7 +1848,7 @@ export class TasksService implements OnModuleInit {
       if (person?.isActive && !person.readOnly) candidates.add(Number(gm.headUserId));
     }
     if (candidates.size === 1) return [...candidates][0];
-    if (candidates.size > 1) throw new BadRequestException('管理办公室负责人存在多个匹配，请配置明确的终审人');
+    if (candidates.size > 1) throw new BadRequestException('总经办负责人存在多个匹配，请配置明确的终审人');
     const fallback = await this.users
       .createQueryBuilder('u')
       .innerJoin(UserRole, 'r', 'r.user_id = u.id')
@@ -1886,7 +1887,7 @@ export class TasksService implements OnModuleInit {
     return this.canFinalApprove(u, change);
   }
 
-  // 终审人集合：单上记录的管理办公室负责人(finalApproverId，即刘维浩) + 管理员；不放开给其它领导/成员
+  // 终审人集合：单上记录的总经办负责人(finalApproverId，即刘维浩) + 管理员；不放开给其它领导/成员
   private async finalApproverIdsOf(change: PlanChange): Promise<number[]> {
     const ids = new Set<number>();
     if (change.finalApproverId != null) ids.add(Number(change.finalApproverId));
@@ -1895,7 +1896,7 @@ export class TasksService implements OnModuleInit {
     return [...ids];
   }
 
-  // 终审级可否审批：属于"管理办公室负责人(刘维浩) 或 管理员"
+  // 终审级可否审批：属于"总经办负责人(刘维浩) 或 管理员"
   // 注意：users.id/外键均为 bigint，运行时是字符串；u.userId 也来自 bigint，
   // 统一用字符串比较，避免 Number(...) 集合严格 includes(字符串) 永远不相等。
   private async canFinalApprove(u: JwtPayload, change: PlanChange): Promise<boolean> {
@@ -1938,7 +1939,7 @@ export class TasksService implements OnModuleInit {
           this.assertValidDateRange(it.after?.startAt ?? null, it.after?.dueAt ?? null);
         }
       }
-    // 审批链：仅"项目负责人本人"发起直通管理办公室终审；其余人（含 admin/领导/部门负责人）发起先经项目负责人；
+    // 审批链：仅"项目负责人本人"发起直通总经办终审；其余人（含 admin/领导/部门负责人）发起先经项目负责人；
     // 项目无负责人则直接终审。
     const finalApproverId = await this.resolveFinalApproverId();
     const stage: 'owner' | 'final' = (await this.needOwnerStage(u, project)) ? 'owner' : 'final';
@@ -1967,8 +1968,8 @@ export class TasksService implements OnModuleInit {
       this.buildPlanChangeSummary(items, 50),
       this.userName(u.userId),
     ]);
-    // 通知当前级审批人：负责人级推全体项目负责人；终审级推"管理办公室负责人(刘维浩+同名)与管理员"
-    const stageNote = change.stage === 'owner' ? '请项目负责人审核。' : '请管理办公室负责人终审。';
+    // 通知当前级审批人：负责人级推全体项目负责人；终审级推"总经办负责人(刘维浩+同名)与管理员"
+    const stageNote = change.stage === 'owner' ? '请项目负责人审核。' : '请总经办负责人终审。';
     const recipients = change.stage === 'owner'
       ? await this.getProjectOwnerIds(project.id)
       : await this.finalApproverIdsOf(change);
@@ -2069,7 +2070,7 @@ export class TasksService implements OnModuleInit {
         : await this.canManageProject(u, project);
       if (!canApproveOwner) throw new ForbiddenException('当前需由项目负责人审核');
     } else if (!(await this.canFinalApprove(u, c))) {
-      throw new ForbiddenException('当前需由管理办公室负责人终审');
+      throw new ForbiddenException('当前需由总经办负责人终审');
     }
     const items = await this.planChangeItems.find({ where: { changeId: id }, order: { id: 'ASC' } });
     await this.assertWritableParticipants(items.flatMap(it => [...(it.after?.assigneeIds || []), ...(it.after?.acceptorIds || [])]));
@@ -2084,7 +2085,7 @@ export class TasksService implements OnModuleInit {
         this.buildPlanChangeSummary(items, 50),
         this.userName(u.userId),
       ]);
-      // 负责人级通过后推给终审人集合（管理办公室负责人刘维浩(含同名)+管理员），排除审批人本人
+      // 负责人级通过后推给终审人集合（总经办负责人刘维浩(含同名)+管理员），排除审批人本人
       for (const rid of new Set(await this.finalApproverIdsOf(c))) {
         if (String(rid) === String(u.userId)) continue;
         await this.feishuNotify.sendCard(
@@ -2099,10 +2100,10 @@ export class TasksService implements OnModuleInit {
               { label: '变更项', value: `${items.length} 项` },
             ],
             blocks: [{ color: 'orange', tasks: this.changeRowsToTasks(summary.cardRows, '变更内容') }],
-            note: '项目负责人已审核通过，请管理办公室负责人终审。',
+            note: '项目负责人已审核通过，请总经办负责人终审。',
             action: { label: '查看并审批', url: this.systemUrl(`/approvals?changeId=${c.id}`) },
           }),
-          `【计划变更待管理办公室终审】项目：${project.name}\n项目负责人已通过，请终审。\n变更内容：\n${summary.plainLines.join('\n')}`,
+          `【计划变更待总经办终审】项目：${project.name}\n项目负责人已通过，请终审。\n变更内容：\n${summary.plainLines.join('\n')}`,
           { projectId: project.id, planChangeId: c.id },
         );
       }
@@ -2239,7 +2240,7 @@ export class TasksService implements OnModuleInit {
         : await this.canManageProject(u, project);
       if (!canApproveOwner) throw new ForbiddenException('当前需由项目负责人审核');
     } else if (!(await this.canFinalApprove(u, c))) {
-      throw new ForbiddenException('当前需由管理办公室负责人终审');
+      throw new ForbiddenException('当前需由总经办负责人终审');
     }
     c.status = 'rejected';
     c.rejectedStage = c.finalApproverId != null ? c.stage : null;
@@ -2366,7 +2367,7 @@ export class TasksService implements OnModuleInit {
     const deptId = body.deptId ?? u.deptId;
     await this.assertBusinessDepartment(deptId);
     // 创建项目时「归属部门」只是项目标签：admin/leader 任意；部门负责人可把项目建在任意部门下
-    // （如管理办公室负责人建质保部门项目）。创建后的管理权由项目负责人(owner)或该部门分管负责人决定。
+    // （如总经办负责人建质保部门项目）。创建后的管理权由项目负责人(owner)或该部门分管负责人决定。
     const canCreate = this.isAdminOrLeader(u) || this.isDeptHead(u) || this.canWriteDept(u, deptId);
     if (!canCreate) {
       throw new ForbiddenException('无权限创建项目');
@@ -2956,7 +2957,7 @@ export class TasksService implements OnModuleInit {
     const rows = await this.projectBriefRows();
     if (!rows.length) return { skipped: 'no_projects', today };
     const closureReminders = (await this.closures.readyProjects()).map((p) => p.state === 'pending'
-      ? `【结项审批中】${p.name}：全部任务已完成，待${p.approverName || '管理办公室负责人'}审批。`
+      ? `【结项审批中】${p.name}：全部任务已完成，待${p.approverName || '总经办负责人'}审批。`
       : `【待申请结项】${p.name}：${p.completedDate}全部验收完成，已等待${p.waitingDays}天，请${p.owners.map((o) => o.name).join('、') || '项目负责人'}申请结项。`);
     // 关注项：整段交给大模型自由写（thinking:disabled，快且稳）。失败回退结构化默认关注项。不阻断发送。
     const narrative = await this.llmBriefNarrative(
@@ -4222,12 +4223,12 @@ export class TasksService implements OnModuleInit {
     const ids = rows.map((r) => r.id);
     const assetRows = ids.length
       ? await this.assets.find({
-          where: { taskId },
+          where: { projectId: task.projectId },
           order: { createdAt: 'DESC' },
         })
       : [];
     const assetMap = new Map<number, TaskAsset[]>();
-    for (const asset of assetRows) {
+    for (const asset of await Promise.all(assetRows.map(a => this.decorateTaskAsset(u, a)))) {
       for (const id of assetProgressIds(asset)) {
         if (!assetMap.has(id)) assetMap.set(id, []);
         assetMap.get(id)!.push(asset);
@@ -4269,8 +4270,159 @@ export class TasksService implements OnModuleInit {
     }
   }
 
+  private async assetDownloadPath(filePath: string) {
+    try {
+      const root = await realpath(resolve('uploads/task-assets'));
+      const full = await realpath(resolve(filePath));
+      if (!full.startsWith(root + sep) || !(await stat(full)).isFile()) throw new Error();
+      return full;
+    } catch { throw new NotFoundException('文件不存在或已被移除'); }
+  }
+
+  private async lockAssetProject(manager: EntityManager, taskId: number) {
+    const task = await manager.getRepository(Task).findOneBy({ id: taskId });
+    if (!task) throw new NotFoundException('任务不存在');
+    await manager.query('SELECT pg_advisory_xact_lock(21017, hashtext($1))', [String(task.projectId)]);
+    return task;
+  }
+
+  private assetTransaction<T>(work: (manager: EntityManager) => Promise<T>) {
+    return (projectOperationManager.getStore() || this.tasks.manager).transaction(work);
+  }
+
+  private async assertUniqueAssetNames(manager: EntityManager, projectId: number, names: string[], exceptId?: number) {
+    const normalize = (name: string) => name.normalize('NFC').trim().toLowerCase();
+    const existing = await manager.getRepository(TaskAsset).find({ where: { projectId } });
+    const seen = new Set<string>();
+    for (const name of names) {
+      const key = normalize(name);
+      const conflicts = existing.filter(a => a.filePath && String(a.id) !== String(exceptId) && normalize(a.originalName || a.title) === key);
+      if (conflicts.length || seen.has(key)) {
+        const sources = conflicts.length ? await manager.getRepository(Task).find({ where: { id: In(conflicts.map(a => a.taskId).filter((id): id is number => id != null)) } }) : [];
+        const sourceTitle = sources.map(t => t.title).join('、') || '本次上传';
+        throw new ConflictException({ code: 'TASK_ASSET_DUPLICATE_NAME',
+          message: `该文件与任务「${sourceTitle}」已提交的文件重名，请优先关联已上传的资料；如需替换内容，请更新已有文件或修改文件名`,
+          conflicts: conflicts.map(a => ({ id: a.id, title: a.title, taskId: a.taskId,
+            sourceTaskTitle: sources.find(t => String(t.id) === String(a.taskId))?.title || null })) });
+      }
+      seen.add(key);
+    }
+  }
+
+  private async createAssetV1(manager: EntityManager, asset: TaskAsset) {
+    if (!asset.filePath) return asset;
+    const versions = manager.getRepository(TaskAssetVersion);
+    const version = await versions.save(versions.create({ assetId: asset.id, versionNo: 1,
+      title: asset.title, originalName: asset.originalName, filePath: asset.filePath,
+      mimeType: asset.mimeType, fileSize: asset.fileSize, uploaderId: asset.uploaderId, createdAt: asset.createdAt, reason: null }));
+    asset.currentVersionId = version.id;
+    return manager.getRepository(TaskAsset).save(asset);
+  }
+
+  private async assetAffectedTasks(manager: EntityManager, asset: TaskAsset) {
+    const ids = assetProgressIds(asset);
+    const updates = ids.length ? await manager.getRepository(TaskDailyUpdate).find({ where: { id: In(ids), projectId: asset.projectId } }) : [];
+    const taskIds = [...new Set([asset.taskId, ...updates.map(r => r.taskId)].filter((id): id is number => id != null).map(Number))];
+    return taskIds.length ? manager.getRepository(Task).find({ where: { id: In(taskIds), projectId: asset.projectId }, order: { id: 'ASC' } }) : [];
+  }
+
+  private async assertCanUpdateAsset(u: JwtPayload, asset: TaskAsset, manager = this.tasks.manager) {
+    if (u.readOnly) throw new ForbiddenException('当前账号仅可读取资料');
+    if (!asset.filePath) throw new BadRequestException('链接资料不支持版本更新');
+    const project = await manager.getRepository(Project).findOneBy({ id: asset.projectId });
+    this.assertProjectNotClosed(project);
+    if (!project?.planLocked) throw new BadRequestException('项目计划未定稿，不能更新资料');
+    const affected = await this.assetAffectedTasks(manager, asset);
+    if (affected.some(t => t.status === 'pending_accept')) throw new BadRequestException('关联任务待验收，请先处理验收后更新资料');
+    const source = affected.find(t => String(t.id) === String(asset.taskId));
+    if (source && source.status !== 'cancelled') {
+      this.assertTaskProcessEditable(source);
+      await this.assertCanWriteTaskProcess(u, source);
+    } else if (!(await this.canManageProject(u, project))) throw new ForbiddenException('仅项目管理者可更新来源任务已移除的资料');
+    return affected;
+  }
+
+  private async decorateTaskAsset(u: JwtPayload, asset: TaskAsset) {
+    const source = asset.taskId ? await this.tasks.findOneBy({ id: asset.taskId }) : null;
+    const version = asset.currentVersionId ? await this.tasks.manager.getRepository(TaskAssetVersion).findOneBy({ id: asset.currentVersionId }) : null;
+    let canUpdate = false;
+    try { await this.assertCanUpdateAsset(u, asset); canUpdate = true; } catch { /* read access does not imply update access */ }
+    return { ...asset, sourceTaskTitle: source?.title || null, versionNo: version?.versionNo || null, canUpdate };
+  }
+
+  async listProjectAssets(u: JwtPayload, taskId: number) {
+    const task = await this.getTask(u, taskId);
+    const assets = await this.assets.find({ where: { projectId: task.projectId }, order: { createdAt: 'DESC' } });
+    return Promise.all(assets.map(a => this.decorateTaskAsset(u, a)));
+  }
+
+  async listTaskAssetVersions(u: JwtPayload, taskId: number, assetId: number) {
+    const task = await this.getTask(u, taskId);
+    const asset = await this.assets.findOneBy({ id: assetId, projectId: task.projectId });
+    if (!asset) throw new NotFoundException('资料不存在');
+    const versions = await this.tasks.manager.getRepository(TaskAssetVersion).find({ where: { assetId }, order: { versionNo: 'DESC' } });
+    const ids = [...new Set(versions.map(v => Number(v.uploaderId)))];
+    const users = ids.length ? await this.tasks.manager.getRepository(User).find({ where: { id: In(ids) } }) : [];
+    return { versions: await Promise.all(versions.map(async v => ({ ...v, uploaderName: users.find(x => String(x.id) === String(v.uploaderId))?.name || null,
+      fileAvailable: await this.assetDownloadPath(v.filePath).then(() => true, () => false),
+      isCurrent: String(v.id) === String(asset.currentVersionId) }))),
+      affectedTasks: (await this.assetAffectedTasks(this.tasks.manager, asset)).map(t => ({ id: t.id, title: t.title })),
+      canUpdate: (await this.decorateTaskAsset(u, asset)).canUpdate };
+  }
+
+  async updateTaskAssetVersion(u: JwtPayload, taskId: number, assetId: number, file: any, body: any) {
+    let committed = false;
+    try {
+      if (!file || typeof file.path !== 'string' || !resolve(file.path).startsWith(resolve('uploads/task-assets') + sep) || !existsSync(file.path)) throw new BadRequestException('请选择有效的上传文件');
+      if (Number(file.size) > 50 * 1024 * 1024) throw new BadRequestException('单份资料不能超过 50 MB');
+      const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
+      if (reason.length > 1000) throw new BadRequestException('更新说明最多 1000 字');
+      if (!body.expectedVersionId || !Number.isSafeInteger(Number(body.expectedVersionId))) throw new BadRequestException('请提供当前版本编号');
+      await this.getTask(u, taskId);
+      const saved = await this.assetTransaction(async manager => {
+        const task = await this.lockAssetProject(manager, taskId);
+        const assets = manager.getRepository(TaskAsset), versions = manager.getRepository(TaskAssetVersion);
+        const asset = await assets.findOne({ where: { id: assetId, projectId: task.projectId }, lock: { mode: 'pessimistic_write' } });
+        if (!asset) throw new NotFoundException('资料不存在');
+        const affected = await this.assertCanUpdateAsset(u, asset, manager);
+        if (String(asset.currentVersionId) !== String(body.expectedVersionId)) throw new ConflictException('资料版本已更新，请刷新后重试');
+        const originalName = this.normalizeUploadedOriginalName(file.originalname);
+        // Replacement targets a stable asset ID. Name checks apply only to newly created assets,
+        // otherwise legacy same-name files would prevent their own version updates.
+        const before = await versions.findOneByOrFail({ id: asset.currentVersionId! });
+        const version = await versions.save(versions.create({ assetId: asset.id, versionNo: before.versionNo + 1,
+          originalName, title: originalName.slice(0, 200), filePath: file.path, mimeType: file.mimetype || null,
+          fileSize: file.size ?? null, uploaderId: u.userId, reason }));
+        Object.assign(asset, { currentVersionId: version.id, title: version.title, originalName: version.originalName,
+          filePath: version.filePath, mimeType: version.mimeType, fileSize: version.fileSize });
+        await assets.save(asset);
+        const affectedTasks = affected.map(t => ({ id: t.id, title: t.title }));
+        const logs = manager.getRepository(TaskLog);
+        for (const t of affected.length ? affected : [task]) await logs.save(logs.create({ taskId: t.id, projectId: asset.projectId, operatorId: u.userId,
+          action: 'task_asset_update', payload: { assetId: asset.id, before: { filename: before.originalName, originalName: before.originalName, versionId: before.id, versionNo: before.versionNo },
+            after: { filename: version.originalName, originalName: version.originalName, versionId: version.id, versionNo: version.versionNo },
+            sourceTaskId: asset.taskId, reason, affectedTasks } }));
+        return asset;
+      });
+      committed = true;
+      return this.decorateTaskAsset(u, saved);
+    } catch (error) {
+      if (!committed) await this.removeProgressUploads(file ? [file] : []);
+      throw error;
+    }
+  }
+
+  async getTaskAssetVersionDownload(u: JwtPayload, taskId: number, assetId: number, versionId: number) {
+    const task = await this.getTask(u, taskId);
+    const asset = await this.assets.findOneBy({ id: assetId, projectId: task.projectId });
+    if (!asset) throw new NotFoundException('资料不存在');
+    const version = await this.tasks.manager.getRepository(TaskAssetVersion).findOneBy({ id: versionId, assetId });
+    if (!version) throw new NotFoundException('文件版本不存在');
+    return { asset: version, stream: createReadStream(await this.assetDownloadPath(version.filePath)) };
+  }
+
   /** Multipart save: text, all materials and audit rows commit or roll back together. */
-  async saveProgress(u: JwtPayload, taskId: number, payload: any, files: any[] = []) {
+  async saveProgress(u: JwtPayload, taskId: number, payload: any, files: any[] = [], uploadMetadata?: { title?: string; description?: string }) {
     try {
       let body: any;
       try { body = typeof payload === 'string' ? JSON.parse(payload) : payload; }
@@ -4309,11 +4461,12 @@ export class TasksService implements OnModuleInit {
         return { url, title };
       });
       if (materialsOnly && !files.length && !links.length && !existingAssetIds.length) throw new BadRequestException('请添加要补充的文件或链接');
-      return await this.tasks.manager.transaction(async (manager) => {
+      return await this.assetTransaction(async (manager) => {
         const tasks = manager.getRepository(Task);
         const updates = manager.getRepository(TaskDailyUpdate);
         const assets = manager.getRepository(TaskAsset);
         const logs = manager.getRepository(TaskLog);
+        await this.lockAssetProject(manager, taskId);
         const task = await tasks.findOne({ where: { id: taskId }, lock: { mode: 'pessimistic_write' } });
         if (!task) throw new NotFoundException('任务不存在');
         if (await this.hasActiveChildren(taskId)) throw new BadRequestException('父任务不需要提交关键进展，请在具体子任务下提交');
@@ -4324,10 +4477,11 @@ export class TasksService implements OnModuleInit {
         // 既有记录的纯文字编辑保留原作者权限；新增记录或补资料仍按任务过程维护权限检查。
         if (!row || materialsOnly || files.length || links.length || existingAssetIds.length) await this.assertCanWriteTaskProcess(u, task);
         if (row && !materialsOnly) await this.assertCanModifyDailyUpdate(u, task, row);
-        const taskAssets = await assets.find({ where: { taskId } });
+        const taskAssets = await assets.find({ where: { projectId: task.projectId } });
+        await this.assertUniqueAssetNames(manager, task.projectId, files.map(file => this.normalizeUploadedOriginalName(file.originalname)));
         const selected = existingAssetIds.map(id => taskAssets.find(asset => Number(asset.id) === id));
         if (selected.some(asset => !asset || !this.hasValidProgressMaterial([asset]))) {
-          throw new BadRequestException('所选资料不存在、已删除或不属于当前任务，请重新选择');
+          throw new BadRequestException('所选资料不存在、已删除或不属于当前项目，请重新选择');
         }
         const existing = row ? taskAssets.filter(asset => assetLinksProgress(asset, row!.id)) : [];
         const writeLog = async (action: string, data: Record<string, any>) => {
@@ -4359,20 +4513,22 @@ export class TasksService implements OnModuleInit {
             originalName: null, mimeType: null, fileSize: null })),
           ...files.map((file) => {
             const originalName = this.normalizeUploadedOriginalName(file.originalname);
-            return { title: originalName.slice(0, 200), url: null, filePath: file.path, originalName,
+            const title = uploadMetadata?.title?.trim() || originalName.slice(0, 200);
+            if (title.length > 200) throw new BadRequestException('资料名称不能超过 200 字');
+            return { title, url: null, filePath: file.path, originalName,
               mimeType: file.mimetype || null, fileSize: file.size ?? null, assetType: this.inferUploadedAssetType(file, originalName) };
           }),
         ]) {
           const assetData: Partial<TaskAsset> = { ...input, projectId: task.projectId, taskId,
-            dailyUpdateId: row!.id, uploaderId: u.userId, description: null };
-          const asset = await assets.save(assets.create(assetData));
+            dailyUpdateId: row!.id, uploaderId: u.userId, description: input.filePath ? this.normalizeOptionalText(uploadMetadata?.description) : null };
+          const asset = await this.createAssetV1(manager, await assets.save(assets.create(assetData)));
           await writeLog('task_asset', { assetId: asset.id, assetType: asset.assetType, title: asset.title, dailyUpdateId: row!.id });
         }
         for (const asset of selected) {
           if (assetLinksProgress(asset!, row!.id)) continue;
           asset!.linkedDailyUpdateIds = [...new Set([...(asset!.linkedDailyUpdateIds || []).map(Number), Number(row!.id)])];
           await assets.save(asset!);
-          await writeLog('task_asset_link', { assetId: asset!.id, title: asset!.title, dailyUpdateId: row!.id });
+          await writeLog('task_asset_link', { assetId: asset!.id, title: asset!.title, dailyUpdateId: row!.id, versionId: asset!.currentVersionId });
         }
         return row!;
       });
@@ -4434,9 +4590,10 @@ export class TasksService implements OnModuleInit {
   }
 
   async deleteDailyUpdate(u: JwtPayload, taskId: number, updateId: number) {
-    return this.tasks.manager.transaction(async manager => {
+    return this.assetTransaction(async manager => {
       const tasks = manager.getRepository(Task), updates = manager.getRepository(TaskDailyUpdate);
       const assets = manager.getRepository(TaskAsset), logs = manager.getRepository(TaskLog);
+      await this.lockAssetProject(manager, taskId);
       const task = await tasks.findOne({ where: { id: taskId }, lock: { mode: 'pessimistic_write' } });
       if (!task) throw new NotFoundException('任务不存在');
       await this.assertProjectPlanLocked(task.projectId);
@@ -4445,7 +4602,7 @@ export class TasksService implements OnModuleInit {
       const project = await this.projects.findOne({ where: { id: task.projectId } });
       if (project?.status === 'archived') throw new BadRequestException('项目已归档，请先恢复项目后再删除关键进展');
       await this.assertCanModifyDailyUpdate(u, task, row, true);
-      for (const asset of await assets.find({ where: { taskId } })) {
+      for (const asset of await assets.find({ where: { projectId: task.projectId } })) {
         if (!assetLinksProgress(asset, row.id)) continue;
         if (Number(asset.dailyUpdateId) === Number(row.id)) asset.dailyUpdateId = null;
         asset.linkedDailyUpdateIds = (asset.linkedDailyUpdateIds || []).filter(id => Number(id) !== Number(row.id));
@@ -4459,9 +4616,10 @@ export class TasksService implements OnModuleInit {
   }
 
   async unlinkTaskAsset(u: JwtPayload, taskId: number, updateId: number, assetId: number) {
-    return this.tasks.manager.transaction(async manager => {
+    return this.assetTransaction(async manager => {
       const tasks = manager.getRepository(Task), updates = manager.getRepository(TaskDailyUpdate);
       const assets = manager.getRepository(TaskAsset), logs = manager.getRepository(TaskLog);
+      await this.lockAssetProject(manager, taskId);
       const task = await tasks.findOne({ where: { id: taskId }, lock: { mode: 'pessimistic_write' } });
       if (!task) throw new NotFoundException('任务不存在');
       this.assertTaskProcessEditable(task);
@@ -4469,9 +4627,9 @@ export class TasksService implements OnModuleInit {
       await this.assertCanWriteTaskProcess(u, task);
       const row = await updates.findOne({ where: { id: updateId, taskId } });
       if (!row) throw new NotFoundException('关键进展不存在');
-      const asset = await assets.findOne({ where: { id: assetId, taskId } });
+      const asset = await assets.findOne({ where: { id: assetId, projectId: task.projectId } });
       if (!asset || !assetLinksProgress(asset, updateId)) throw new NotFoundException('资料关联不存在');
-      const remaining = (await assets.find({ where: { taskId } }))
+      const remaining = (await assets.find({ where: { projectId: task.projectId } }))
         .filter(a => Number(a.id) !== Number(assetId) && assetLinksProgress(a, updateId));
       if (!this.hasValidProgressMaterial(remaining) && !row.noMaterialReason?.trim()) {
         throw new BadRequestException('不能解除本条进展最后一份资料的关联；请先补充其他资料或填写无资料原因');
@@ -4524,116 +4682,61 @@ export class TasksService implements OnModuleInit {
   }
 
   async listTaskAssets(u: JwtPayload, taskId: number) {
-    await this.getTask(u, taskId);
-    return this.assets.find({
-      where: { taskId },
-      order: { createdAt: 'DESC' },
-    });
+    const task = await this.getTask(u, taskId);
+    const updates = await this.dailyUpdates.find({ where: { taskId } });
+    const ids = new Set(updates.map(r => Number(r.id)));
+    const assets = await this.assets.find({ where: { projectId: task.projectId }, order: { createdAt: 'DESC' } });
+    return Promise.all(assets.filter(a => String(a.taskId) === String(taskId) || assetProgressIds(a).some(id => ids.has(Number(id))))
+      .map(a => this.decorateTaskAsset(u, a)));
   }
 
   async createTaskAsset(u: JwtPayload, taskId: number, body: any) {
-    const task = await this.tasks.findOne({ where: { id: taskId } });
-    if (!task) throw new NotFoundException('任务不存在');
-    this.assertTaskProcessEditable(task);
-    await this.assertProjectPlanLocked(task.projectId);
-    await this.assertCanWriteTaskProcess(u, task);
-
-    const title = String(body.title ?? '').trim();
-    if (!title) throw new BadRequestException('请填写资料名称');
-
-    const url = this.normalizeOptionalText(body.url);
-    if (!url) {
-      throw new BadRequestException('请填写飞书/链接资料地址；本地文件请使用上传本地文件区域');
-    }
-    try {
-      if (!['http:', 'https:'].includes(new URL(url).protocol)) throw new Error();
-    } catch {
-      throw new BadRequestException('请填写有效的 HTTP/HTTPS 资料链接');
-    }
-    const assetType = this.inferLinkAssetType(url);
-
-    const dailyUpdateId = body.dailyUpdateId ? Number(body.dailyUpdateId) : null;
-    if (!dailyUpdateId) {
-      throw new BadRequestException('请选择要关联的关键进展');
-    }
-    const update = await this.dailyUpdates.findOne({ where: { id: dailyUpdateId, taskId } });
-    if (!update) throw new BadRequestException('关联的关键进展不存在');
-
-    const asset = await this.assets.save(
-      this.assets.create({
-        projectId: task.projectId,
-        taskId,
-        dailyUpdateId,
-        assetType,
-        title,
-        url,
-        filePath: null, // 本地文件路径只能由上传接口生成，不能接受客户端伪造。
-        originalName: null,
-        mimeType: null,
-        fileSize: body.fileSize != null ? Number(body.fileSize) : null,
-        description: this.normalizeOptionalText(body.description),
-        uploaderId: u.userId,
-      }),
-    );
-    await this.addLog(task, u.userId, 'task_asset', {
-      assetId: asset.id,
-      assetType,
-      title,
-      dailyUpdateId,
+    return this.assetTransaction(async manager => {
+      await this.lockAssetProject(manager, taskId);
+      const task = await manager.getRepository(Task).findOne({ where: { id: taskId }, lock: { mode: 'pessimistic_write' } });
+      if (!task) throw new NotFoundException('任务不存在');
+      this.assertTaskProcessEditable(task);
+      await this.assertProjectPlanLocked(task.projectId);
+      await this.assertCanWriteTaskProcess(u, task);
+      const dailyUpdateId = Number(body.dailyUpdateId);
+      const update = Number.isSafeInteger(dailyUpdateId) && dailyUpdateId > 0
+        ? await manager.getRepository(TaskDailyUpdate).findOneBy({ id: dailyUpdateId, taskId }) : null;
+      if (!update) throw new BadRequestException('请选择要关联的关键进展');
+      const title = typeof body.title === 'string' ? body.title.trim() : '';
+      const url = typeof body.url === 'string' ? body.url.trim() : '';
+      if (!title || title.length > 200) throw new BadRequestException('请填写资料名称，最多 200 字');
+      try { if (!['http:', 'https:'].includes(new URL(url).protocol)) throw Error(); }
+      catch { throw new BadRequestException('请填写有效的 HTTP/HTTPS 资料链接'); }
+      const assets = manager.getRepository(TaskAsset), logs = manager.getRepository(TaskLog);
+      const asset = await assets.save(assets.create({ projectId: task.projectId, taskId, dailyUpdateId,
+        assetType: this.inferLinkAssetType(url), title, url, filePath: null, originalName: null, mimeType: null,
+        fileSize: body.fileSize != null ? Number(body.fileSize) : null, description: this.normalizeOptionalText(body.description), uploaderId: u.userId }));
+      await logs.save(logs.create({ taskId, projectId: task.projectId, operatorId: u.userId, action: 'task_asset',
+        payload: { assetId: asset.id, assetType: asset.assetType, title, dailyUpdateId } }));
+      return asset;
     });
-    return asset;
   }
 
   async uploadTaskAsset(u: JwtPayload, taskId: number, file: any, body: any) {
-    if (!file) throw new BadRequestException('请选择要上传的文件');
-    const task = await this.tasks.findOne({ where: { id: taskId } });
-    if (!task) throw new NotFoundException('任务不存在');
-    this.assertTaskProcessEditable(task);
-    await this.assertProjectPlanLocked(task.projectId);
-    await this.assertCanWriteTaskProcess(u, task);
-
-    const dailyUpdateId = body.dailyUpdateId ? Number(body.dailyUpdateId) : null;
-    if (!dailyUpdateId) {
-      throw new BadRequestException('请选择要关联的关键进展');
+    const updateId = Number(body.dailyUpdateId);
+    if (!file || !Number.isSafeInteger(updateId) || updateId <= 0) {
+      await this.removeProgressUploads(file ? [file] : []);
+      throw new BadRequestException('请选择文件及要关联的关键进展');
     }
-    const update = await this.dailyUpdates.findOne({ where: { id: dailyUpdateId, taskId } });
-    if (!update) throw new BadRequestException('关联的关键进展不存在');
-
-    const originalName = this.normalizeUploadedOriginalName(file.originalname);
-    const title = String(body.title ?? '').trim() || originalName || '上传文件';
-    const assetType = this.inferUploadedAssetType(file, originalName);
-    const asset = await this.assets.save(
-      this.assets.create({
-        projectId: task.projectId,
-        taskId,
-        dailyUpdateId,
-        assetType,
-        title,
-        url: null,
-        filePath: file.path,
-        originalName,
-        mimeType: file.mimetype ?? null,
-        fileSize: file.size != null ? Number(file.size) : null,
-        description: this.normalizeOptionalText(body.description),
-        uploaderId: u.userId,
-      }),
-    );
-    await this.addLog(task, u.userId, 'task_asset', {
-      assetId: asset.id,
-      assetType,
-      title,
-      dailyUpdateId,
+    await this.saveProgress(u, taskId, { updateId, materialsOnly: true }, [file], {
+      title: typeof body.title === 'string' ? body.title : undefined,
+      description: typeof body.description === 'string' ? body.description : undefined,
     });
-    return asset;
+    const asset = await this.assets.findOneByOrFail({ taskId, filePath: file.path });
+    return this.decorateTaskAsset(u, asset);
   }
 
   async getTaskAssetDownload(u: JwtPayload, taskId: number, assetId: number) {
-    await this.getTask(u, taskId);
-    const asset = await this.assets.findOne({ where: { id: assetId, taskId } });
+    const task = await this.getTask(u, taskId);
+    const asset = await this.assets.findOne({ where: { id: assetId, projectId: task.projectId } });
     if (!asset) throw new NotFoundException('资料不存在');
     if (!asset.filePath) throw new BadRequestException('该资料不是本地上传文件');
-    const fullPath = join(process.cwd(), asset.filePath);
-    if (!existsSync(fullPath)) throw new NotFoundException('文件不存在或已被移除');
+    const fullPath = await this.assetDownloadPath(asset.filePath);
     return {
       asset,
       stream: createReadStream(fullPath),
@@ -4641,11 +4744,12 @@ export class TasksService implements OnModuleInit {
   }
 
   async deleteTaskAsset(u: JwtPayload, taskId: number, assetId: number) {
-    return this.tasks.manager.transaction(async (manager) => {
+    return this.assetTransaction(async (manager) => {
       const tasks = manager.getRepository(Task);
       const assets = manager.getRepository(TaskAsset);
       const updates = manager.getRepository(TaskDailyUpdate);
       const logs = manager.getRepository(TaskLog);
+      await this.lockAssetProject(manager, taskId);
       const task = await tasks.findOne({ where: { id: taskId }, lock: { mode: 'pessimistic_write' } });
       if (!task) throw new NotFoundException('任务不存在');
       await this.assertProjectPlanLocked(task.projectId);
@@ -4655,12 +4759,14 @@ export class TasksService implements OnModuleInit {
       await this.assertCanWriteTaskProcess(u, task);
       const asset = await assets.findOne({ where: { id: assetId, taskId } });
       if (!asset) throw new NotFoundException('资料不存在');
+      if ((await this.assetAffectedTasks(manager, asset)).some(t => t.status === 'pending_accept')) throw new BadRequestException('关联任务待验收，不能删除资料');
+      if (await manager.getRepository(TaskAssetVersion).count({ where: { assetId: asset.id } }) > 1) throw new BadRequestException('该资料有多个历史版本，不能直接删除，请保留历史');
       const linkedIds = assetProgressIds(asset);
       if (linkedIds.length > 1) throw new BadRequestException('该资料关联了多条进展，请先在对应进展中解除关联');
       if (linkedIds.length) {
-        const progress = await updates.findOne({ where: { id: linkedIds[0], taskId } });
+        const progress = await updates.findOne({ where: { id: linkedIds[0], projectId: task.projectId } });
         if (progress) {
-          const remaining = (await assets.find({ where: { taskId } })).filter(a => assetLinksProgress(a, linkedIds[0]));
+          const remaining = (await assets.find({ where: { projectId: task.projectId } })).filter(a => assetLinksProgress(a, linkedIds[0]));
           if (!this.hasValidProgressMaterial(remaining.filter(row => String(row.id) !== String(assetId)))
             && !progress.noMaterialReason?.trim()) {
             throw new BadRequestException('不能删除本条进展的最后一份资料；请先编辑进展填写无资料原因');
@@ -5026,13 +5132,25 @@ export class TasksService implements OnModuleInit {
 
   */
   async transition(u: JwtPayload, id: number, to: string, comment?: string, materialExemptionReason?: string) {
+    return this.assetTransaction(async manager => {
+      await this.lockAssetProject(manager, id);
+      await manager.getRepository(Task).findOne({ where: { id }, lock: { mode: 'pessimistic_write' } });
+      // Existing transition helpers use repositories on this service; bind them to the same transaction.
+      const scoped = Object.assign(Object.create(Object.getPrototypeOf(this)), this) as TasksService;
+      for (const key of Object.keys(this)) {
+        const value = (this as any)[key];
+        if (value instanceof Repository) (scoped as any)[key] = manager.getRepository(value.target);
+      }
+      return scoped.transitionLocked(u, id, to, comment, materialExemptionReason);
+    });
+  }
+
+  private async transitionLocked(u: JwtPayload, id: number, to: string, comment?: string, materialExemptionReason?: string) {
     const t = await this.tasks.findOne({ where: { id } });
     if (!t) throw new NotFoundException('任务不存在');
-    const [assigneeIds, acceptorIds, project] = await Promise.all([
-      this.getAssigneeIds(id, 'assignee'),
-      this.getAssigneeIds(id, 'acceptor'),
-      this.projects.findOne({ where: { id: t.projectId } }),
-    ]);
+    const assigneeIds = await this.getAssigneeIds(id, 'assignee');
+    const acceptorIds = await this.getAssigneeIds(id, 'acceptor');
+    const project = await this.projects.findOne({ where: { id: t.projectId } });
     this.assertProjectNotClosed(project);
     // bigint 从数据库读出可能是字符串，权限比较统一口径。
     const isCurrentUser = (uid: number | null) => uid != null && String(uid) === String(u.userId);
@@ -5045,7 +5163,7 @@ export class TasksService implements OnModuleInit {
     const isReopen = t.status === 'done' && to === 'doing';
     let canAct = canReview || isCreator || isAssignee;
     if (isReopen) {
-      if (!(await this.canReopenCompletedTask(u))) throw new ForbiddenException('仅管理员或管理办公室负责人可将已完成任务退回进行中');
+      if (!(await this.canReopenCompletedTask(u))) throw new ForbiddenException('仅管理员或总经办负责人可将已完成任务退回进行中');
       if (!project || project.status === 'archived') throw new BadRequestException('项目已归档或不存在，不能退回已完成任务');
       if (!comment?.trim()) throw new BadRequestException('请填写已完成任务的退回原因');
       comment = comment.trim();
@@ -5090,7 +5208,9 @@ export class TasksService implements OnModuleInit {
       if (!progressCount) {
         throw new BadRequestException('该任务尚未提交关键进展，不能提交验收');
       }
-      const materials = await this.assets.find({ where: { taskId: id } });
+      const updates = await this.dailyUpdates.find({ where: { taskId: id } });
+      const progressIds = new Set(updates.map(row => Number(row.id)));
+      const materials = (await this.assets.find({ where: { projectId: t.projectId } })).filter(a => String(a.taskId) === String(id) || assetProgressIds(a).some(p => progressIds.has(Number(p))));
       const hasMaterial = materials.some((asset) => {
         if (asset.filePath?.trim()) return true;
         try {

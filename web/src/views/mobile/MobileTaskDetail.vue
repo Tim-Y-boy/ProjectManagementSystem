@@ -9,6 +9,7 @@ import { statusLabel, statusType } from '@/utils/task-meta';
 import { leafRisk } from '@/utils/task-risk';
 import TaskCompletionTag from '@/components/TaskCompletionTag.vue';
 import TaskMaterialLink from '@/components/TaskMaterialLink.vue';
+import TaskAssetVersionActions from '@/components/TaskAssetVersionActions.vue';
 import ExistingTaskAssetsSelect from '@/components/ExistingTaskAssetsSelect.vue';
 import { assetLinksProgress } from '@/utils/task-assets';
 import NoMaterialReasonSelect from '@/components/NoMaterialReasonSelect.vue';
@@ -27,6 +28,7 @@ const requestedWeek = computed(() => typeof route.query.weekStart === 'string' &
 const task = ref<any>(null);
 const updates = ref<any[]>([]);
 const assets = ref<any[]>([]);
+const projectAssets = ref<any[]>([]);
 const detailTab = ref<'summary' | 'updates'>(requestedWeek.value ? 'updates' : 'summary');
 const loading = ref(false);
 
@@ -95,15 +97,17 @@ async function load() {
   const id = taskId.value;
   loading.value = true;
   try {
-    const [one, ups, ass] = await Promise.all([
+    const [one, ups, ass, pool] = await Promise.all([
       tasksApi.one(id),
       tasksApi.dailyUpdates(id),
       tasksApi.assets(id),
+      tasksApi.projectAssets(id),
     ]);
     if (version !== loadVersion || id !== taskId.value) return;
     task.value = one;
     updates.value = ups || [];
     assets.value = ass || [];
+    projectAssets.value = pool || [];
   } catch (e: any) {
     if (version === loadVersion && id === taskId.value) ElMessage.error(e.message || '加载失败');
   } finally {
@@ -259,7 +263,7 @@ const materialChoice = shallowRef<'' | 'yes' | 'no'>('');
 const materialSource = shallowRef<'file' | 'link' | 'existing'>('file');
 const linkDraft = shallowRef('');
 const draftLinks = computed(() => linkDraft.value.split(/\r?\n/).map(url => url.trim()).filter(Boolean));
-const hasDraftMaterials = computed(() => pendingFiles.value.length > 0 || draftLinks.value.some(validLink) || selectedExistingAssetIds.value.some(id => assets.value.some(a => Number(a.id) === id && (a.filePath || validLink(a.url || '')))));
+const hasDraftMaterials = computed(() => pendingFiles.value.length > 0 || draftLinks.value.some(validLink) || selectedExistingAssetIds.value.some(id => projectAssets.value.some(a => Number(a.id) === id && (a.filePath || validLink(a.url || '')))));
 const showNoMaterialReason = computed(() => !targetUpdateId.value && materialChoice.value === 'no');
 const selectedUpdate = computed(() => updates.value.find(update => String(update.id) === String(targetUpdateId.value)));
 async function chooseProgress(updateId: number | null) {
@@ -396,6 +400,7 @@ watch(() => [route.params.id, route.query.weekStart], () => {
   task.value = null;
   updates.value = [];
   assets.value = [];
+  projectAssets.value = [];
   targetUpdateId.value = null;
   materialChoice.value = '';
   materialSource.value = 'file';
@@ -468,7 +473,7 @@ watch(() => [route.params.id, route.query.weekStart], () => {
             <el-button link :disabled="savingUpdate" @click="chooseProgress(null)">返回新增进展</el-button>
           </div>
           <ProgressMaterialsChoice v-model="materialChoice" v-model:source="materialSource" :disabled="savingUpdate" :supplement-only="!!targetUpdateId">
-          <template #existing><ExistingTaskAssetsSelect v-model="selectedExistingAssetIds" :assets="assets" :update-id="targetUpdateId" :disabled="savingUpdate" /></template>
+          <template #existing><ExistingTaskAssetsSelect v-model="selectedExistingAssetIds" :assets="projectAssets" :update-id="targetUpdateId" :disabled="savingUpdate" /></template>
           <template #file>
           <p class="mtd-tip">最多 30 个文件，单个不超过 50MB，单次合计不超过 200MB。</p>
           <label class="mtd-field">文件（选填，可多选）<input type="file" multiple class="mtd-input" :disabled="savingUpdate" @change="selectFiles" /></label>
@@ -502,6 +507,7 @@ watch(() => [route.params.id, route.query.weekStart], () => {
             <div class="mtd-section-label">相关资料 · {{ u.materials.length }} 份</div>
             <div v-for="a in u.materials" :key="a.id">
               <TaskMaterialLink :asset="a" @open="openAsset" />
+              <TaskAssetVersionActions :task-id="taskId" :asset="a" :disabled="auth.readOnly || isFrozen || savingUpdate" @updated="load" />
               <el-button v-if="canWriteProcess" link :disabled="savingUpdate" @click="unlinkProgressAsset(u, a)">解除关联</el-button>
             </div>
           </div>
@@ -509,7 +515,7 @@ watch(() => [route.params.id, route.query.weekStart], () => {
         </div>
         <div v-if="unlinkedAssets.length" class="mtd-item">
           <div class="mtd-item-title">其他任务资料</div>
-          <TaskMaterialLink v-for="a in unlinkedAssets" :key="a.id" :asset="a" @open="openAsset" />
+          <div v-for="a in unlinkedAssets" :key="a.id"><TaskMaterialLink :asset="a" @open="openAsset" /><TaskAssetVersionActions :task-id="taskId" :asset="a" :disabled="auth.readOnly || isFrozen || savingUpdate" @updated="load" /></div>
         </div>
       </div>
     </template>

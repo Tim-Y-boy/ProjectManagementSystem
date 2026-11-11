@@ -16,6 +16,12 @@ test('project weekly report reads are allowed to visitors while submissions stay
   for (const handler of ['list','detail','todo']) assert.equal(await request('ProjectWeeklyReportsController',handler).run(),true);
   for (const [handler,method] of [['save','PUT'],['draft','PUT'],['submit','POST']]) await assert.rejects(request('ProjectWeeklyReportsController',handler,method).run(),error=>error.getStatus()===403);
 });
+test('visitors can read shared assets and version history but cannot update versions', async () => {
+  for(const handler of ['listProjectAssets','listAssetVersions','downloadAssetVersion']) {
+    assert.equal(await request('TasksController',handler).run(),true);
+  }
+  await assert.rejects(request('TasksController','updateAssetVersion','POST').run(),error=>error.getStatus()===403);
+});
 test('read-only requests get viewer identity and no managed departments', async () => {
   const { req, run } = request('TasksController', 'listProjects');
   await run();

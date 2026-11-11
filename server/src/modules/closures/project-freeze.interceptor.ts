@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, CallHandler, ExecutionContext, 
 import { DataSource } from 'typeorm';
 import { from, lastValueFrom } from 'rxjs';
 import { ClosuresService } from './closures.service';
+import { projectOperationManager } from './project-operation-context';
 
 // 所有原任务/项目写入口共享项目锁，与结项提交及审批互斥。
 // 读接口不加锁。旧归档可恢复；新结项不得通过旧恢复接口绕过。
@@ -42,7 +43,7 @@ export class ProjectFreezeInterceptor implements NestInterceptor {
       if (p?.status === 'archived' && !route.endsWith('/unarchive')) throw new BadRequestException('归档项目不可编辑，请先恢复历史归档');
       // 日期变更/删除前留存已经发生的延期事实。
       if (p?.status === 'active') await this.closures.observeProject(pid, runner.manager);
-      const result = await lastValueFrom(next.handle());
+      const result = await projectOperationManager.run(runner.manager, () => lastValueFrom(next.handle()));
       // 业务已经成功的情况下留档失败不能误报操作失败；每日核查会补偿。
       if (p && req.method !== 'DELETE') {
         try { await this.closures.observeProject(pid, runner.manager); } catch { /* 定时补偿 */ }

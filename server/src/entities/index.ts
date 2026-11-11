@@ -14,6 +14,7 @@ import { PlanChangeItem } from './plan-change-item.entity';
 import { Task } from './task.entity';
 import { TaskAssignee } from './task-assignee.entity';
 import { TaskAsset } from './task-asset.entity';
+import { TaskAssetVersion } from './task-asset-version.entity';
 import { TaskDailyUpdate } from './task-daily-update.entity';
 import { TaskLog } from './task-log.entity';
 import { User } from './user.entity';
@@ -38,6 +39,7 @@ export const AllEntities = [
   Task,
   TaskAssignee,
   TaskAsset,
+  TaskAssetVersion,
   TaskDailyUpdate,
   TaskLog,
   User,
@@ -60,6 +62,7 @@ export {
   Task,
   TaskAssignee,
   TaskAsset,
+  TaskAssetVersion,
   TaskDailyUpdate,
   TaskLog,
   User,

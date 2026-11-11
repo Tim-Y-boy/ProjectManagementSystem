@@ -30,6 +30,8 @@ export const LOG_ACTION_META: Record<string, ActionMeta> = {
   daily_update_delete: { label: '删除关键进展', type: 'danger' },
   daily_update_exempt: { label: '确认合理补填', type: 'warning' },
   daily_update_unexempt: { label: '撤销合理补填', type: 'warning' },
+  task_asset_update: { label: '更新资料版本', type: 'primary' },
+  task_asset_merge: { label: '归并资料历史', type: 'info' },
   task_asset: { label: '添加过程资料', type: 'primary' },
   task_asset_link: { label: '关联进展资料', type: 'primary' },
   task_asset_unlink: { label: '取消资料关联', type: 'warning' },
@@ -68,12 +70,20 @@ export function logNote(log: TaskLogEntry): string {
   const text = (value: unknown) => typeof value === 'string' ? value.trim() : '';
   const comment = text(log.payload?.comment);
   const reason = text(log.payload?.reason);
+  if (log.action === 'task_asset_merge') return reason;
   if (log.action === 'daily_update' || log.action === 'daily_update_edit') {
     return [text(log.payload?.content), text(log.payload?.risk) ? `风险：${text(log.payload?.risk)}` : '',
       text(log.payload?.nextPlan) ? `下一步：${text(log.payload?.nextPlan)}` : ''].filter(Boolean).join('\n');
   }
   if (log.action === 'transition' && log.toStatus === 'pending_accept') {
     return [comment ? `提交说明：${comment}` : '', text(log.payload?.materialExemptionReason) ? `无资料说明：${text(log.payload?.materialExemptionReason)}` : ''].filter(Boolean).join('；');
+  }
+  if (log.action === 'task_asset_update') {
+    const before = log.payload?.before as Record<string, unknown> | undefined;
+    const after = log.payload?.after as Record<string, unknown> | undefined;
+    const version = (value: Record<string, unknown> | undefined) => [text(value?.originalName), value?.versionNo != null ? 'v' + value.versionNo : ''].filter(Boolean).join(' ');
+    const tasks = Array.isArray(log.payload?.affectedTasks) ? log.payload.affectedTasks as { title?: unknown }[] : [];
+    return [version(before) + ' → ' + version(after), reason ? '更新说明：' + reason : '', tasks.length ? '受影响任务：' + tasks.map(task => text(task.title)).filter(Boolean).join('、') : ''].filter(Boolean).join('；');
   }
   if (log.action === 'task_asset_link' || log.action === 'task_asset_unlink') {
     const title = text(log.payload?.title);

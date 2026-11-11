@@ -9,7 +9,9 @@ function fixture(status = 'done') {
   const service = Object.create(TasksService.prototype);
   service.weeklyProgress = { missingWeeksForTask: async () => [] };
   service.tasks = { findOne: async () => task, save: async (row) => { events.push('saved'); return row; } };
-  service.projects = { findOne: async () => ({ id: 18, name: '示例流程改进项目', ownerId: 99, status: 'active', planLocked: true }) };
+  service.tasks.findOneBy = async () => task;
+  service.tasks.manager = { transaction: callback => callback({ query: async () => [], getRepository: entity => ({Task:service.tasks}[entity.name]) }) };
+  service.projects = { findOne: async () => ({ id: 18, name: '包装车间自动化改造项目', ownerId: 99, status: 'active', planLocked: true }) };
   service.assignees = { find: async ({ where }) => (where.role === 'assignee' ? ['71', 219, '16'] : [16, '30', '219']).map(userId => ({ userId })) };
   service.isOwnerOf = async () => false;
   service.hasActiveChildren = async () => false;
@@ -39,7 +41,7 @@ for (const [from, type, title, next] of [
     for (const [actualType, recipient, card, fallback, refs] of f.sent) {
       assert.equal(actualType, type);
       assert.match(card.header.title.content, new RegExp(title));
-      for (const text of ['示例流程改进项目', '现场布局确认', '管理员', '请核对设备参数', next]) {
+      for (const text of ['包装车间自动化改造项目', '现场布局确认', '管理员', '请核对设备参数', next]) {
         assert.ok(JSON.stringify(card).includes(text), text);
         assert.ok(fallback.includes(text), text);
       }

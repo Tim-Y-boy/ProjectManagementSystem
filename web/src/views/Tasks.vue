@@ -20,6 +20,7 @@ import UserSelect from '@/components/UserSelect.vue';
 import SmartSelect from '@/components/SmartSelect.vue';
 import DatePick from '@/components/DatePick.vue';
 import TaskMaterialLink from '@/components/TaskMaterialLink.vue';
+import TaskAssetVersionActions from '@/components/TaskAssetVersionActions.vue';
 import ExistingTaskAssetsSelect from '@/components/ExistingTaskAssetsSelect.vue';
 import { assetLinksProgress, assetProgressIds } from '@/utils/task-assets';
 import NoMaterialReasonSelect from '@/components/NoMaterialReasonSelect.vue';
@@ -852,7 +853,9 @@ const detailRange = computed(() => deriveTaskRange(detail.value));
 const detailTab = shallowRef('updates');
 const dailyUpdates = ref<any[]>([]);
 const taskAssets = ref<any[]>([]);
+const projectAssets = ref<any[]>([]);
 const processSaving = shallowRef(false);
+const processMaterialError = shallowRef('');
 type PendingAsset = { key: number; title: string; description: string; url?: string; file?: File };
 const pendingAssets = ref<PendingAsset[]>([]);
 const selectedExistingAssetIds = ref<number[]>([]);
@@ -899,6 +902,7 @@ const assetForm = ref({
 });
 
 function resetDailyForm() {
+  processMaterialError.value = '';
   editingDailyUpdateId.value = null;
   supplementOnly.value = false;
   materialChoice.value = '';
@@ -1011,7 +1015,7 @@ const dailyTimeline = computed(() => sortedDailyUpdates.value.map(update => ({
   ...update,
   assets: taskAssets.value.filter(asset => assetLinksProgress(asset, update.id)),
 })));
-const unlinkedTaskAssets = computed(() => taskAssets.value.filter((asset) => !assetProgressIds(asset).length));
+
 
 function canModifyDailyUpdate(update: any) {
   if (auth.readOnly) return false;
@@ -1046,22 +1050,25 @@ async function openDetail(task: any, tab = 'updates') {
   }
   detailVisible.value = true;
   detailLoading.value = true;
-  detailTab.value = ['assets','summary'].includes(tab) ? 'updates' : tab;
+  detailTab.value = ['assets', 'summary'].includes(tab) ? 'updates' : tab;
   dailyUpdates.value = [];
   taskAssets.value = [];
+  projectAssets.value = [];
   if (String(detail.value?.id) !== String(task.id)) {
     resetDailyForm();
     materialFilter.value = 'all';
   }
   try {
-    const [taskDetail, updates, assets] = await Promise.all([
+    const [taskDetail, updates, assets, pool] = await Promise.all([
       tasksApi.one(task.id),
       tasksApi.dailyUpdates(task.id),
       tasksApi.assets(task.id),
+      tasksApi.projectAssets(task.id),
     ]);
     detail.value = taskDetail;
     dailyUpdates.value = updates;
     taskAssets.value = assets;
+    projectAssets.value = pool;
   } finally {
     detailLoading.value = false;
   }
@@ -1101,21 +1108,23 @@ async function openWeeklyProgressFromRoute() {
 async function reloadTaskProcess() {
   if (!detail.value?.id) return;
   const id = detail.value.id;
-  const [taskDetail, updates, assets] = await Promise.all([
+  const [taskDetail, updates, assets, pool] = await Promise.all([
     tasksApi.one(id),
     tasksApi.dailyUpdates(id),
     tasksApi.assets(id),
+    tasksApi.projectAssets(id),
   ]);
   if (String(detail.value?.id) !== String(id)) return;
   detail.value = taskDetail;
   dailyUpdates.value = updates;
   taskAssets.value = assets;
+  projectAssets.value = pool;
 }
 
 function hasProgressMaterials() {
   const existing = editingDailyUpdateId.value
     ? taskAssets.value.filter(asset => assetLinksProgress(asset, editingDailyUpdateId.value)) : [];
-  const selected = taskAssets.value.filter(asset => selectedExistingAssetIds.value.includes(Number(asset.id)));
+  const selected = projectAssets.value.filter(asset => selectedExistingAssetIds.value.includes(Number(asset.id)));
   const links = assetForm.value.url.split(/\r?\n/).map(url => ({ url: url.trim() }));
   return pendingAssets.value.some(asset => !!asset.file)
     || hasValidTaskMaterials([...existing, ...selected, ...pendingAssets.value, ...links]);
@@ -1169,12 +1178,18 @@ async function submitDailyUpdate() {
     for (const asset of assetsToSave) {
       if (asset.file) data.append('files', asset.file, asset.file.name);
     }
-    await tasksApi.saveProgress(taskId, data);
+    await tasksApi.saveProgress(taskId, data, { inlineDuplicateName: true });
     refreshStore.markTaskChanged();
     resetDailyForm();
     ElMessage.success('进展与资料已保存');
     await reloadTaskProcess();
   } catch (e: any) {
+    if (e.inlineDuplicateName) {
+      processMaterialError.value = e.message.includes('请优先关联已上传的资料') ? e.message
+        : e.message.replace('请优先更新已有文件或修改文件名', '请优先关联已上传的资料；如需替换内容，请更新已有文件或修改文件名');
+      progressEditor.value?.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
     if (!isMessageShown(e)) ElMessage.warning(e.message || '保存未完成，填写内容和资料已保留，请重试。');
   } finally {
     processSaving.value = false;
@@ -2439,6 +2454,7 @@ onUnmounted(() => {
             <div v-if="processLockTip" class="process-lock-tip">{{ processLockTip }}</div>
             <div class="process-panel" :class="{ 'process-panel-browse': auth.readOnly }">
               <div v-if="!auth.readOnly" ref="progressEditor" class="progress-editor">
+                <p v-if="processMaterialError" class="process-material-error" role="alert">{{ processMaterialError }}</p>
                 <el-form v-if="!auth.readOnly" label-position="top" class="process-form" :disabled="!canEditDetailProcess || processSaving">
                   <div class="d-sec-title">{{ supplementOnly ? '为已有进展补资料' : editingDailyUpdateId ? '编辑进展与资料' : '填写进展与资料' }}</div>
                   <p class="form-tip">记录本次工作，并附上资料；没有资料时请说明原因。</p>
@@ -2469,7 +2485,7 @@ onUnmounted(() => {
                     <div class="d-sec-title">相关资料</div>
                     <ProgressMaterialsChoice v-model="materialChoice" v-model:source="materialSource" :disabled="!canEditDetailProcess || processSaving" :has-saved-materials="hasSavedProgressMaterials" :supplement-only="supplementOnly">
                     <template #existing>
-                    <ExistingTaskAssetsSelect v-model="selectedExistingAssetIds" :assets="taskAssets"
+                    <ExistingTaskAssetsSelect v-model="selectedExistingAssetIds" :assets="projectAssets"
                       :update-id="editingDailyUpdateId" :disabled="!canEditDetailProcess || processSaving" />
                     </template>
                     <template #file>
@@ -2532,8 +2548,11 @@ onUnmounted(() => {
                     <div v-if="u.assets?.length" class="daily-assets">
                       <div class="daily-section-label">相关资料 · {{ u.assets.length }} 份</div>
                       <div v-for="asset in u.assets" :key="asset.id" class="linked-material-row">
-                        <TaskMaterialLink :asset="asset" @open="openAsset" />
-                        <el-button v-if="canEditDetailProcess" link type="info" :disabled="processSaving" @click="unlinkProgressAsset(u, asset)">解除关联</el-button>
+                        <TaskMaterialLink :asset="asset" :version-no="asset.versionNo" hide-action @open="openAsset" />
+                        <TaskAssetVersionActions compact :task-id="Number(detail.id)" :asset="asset" :disabled="auth.readOnly || isDetailFrozen || processSaving" @updated="reloadTaskProcess"><template #more>
+                          <el-dropdown-item v-if="!asset.url" @click="downloadAsset(asset)">下载</el-dropdown-item>
+                          <el-dropdown-item v-if="canEditDetailProcess" :disabled="processSaving" @click="unlinkProgressAsset(u, asset)">解除关联</el-dropdown-item>
+                        </template></TaskAssetVersionActions>
                       </div>
                     </div>
                     <div class="daily-footer">
@@ -2552,21 +2571,22 @@ onUnmounted(() => {
                   </div>
                 </div>
                 </div>
-              <details v-if="taskAssets.length" class="asset-list">
-                <summary class="d-sec-title">全部资料（{{ taskAssets.length }}）</summary>
-                <el-select v-model="materialFilter" aria-label="筛选任务资料" style="width: 100%; margin-bottom: 12px">
-                  <el-option label="全部资料" value="all" />
-                  <el-option label="文件" value="file" />
-                  <el-option label="链接" value="link" />
-                </el-select>
-                <div v-if="unlinkedTaskAssets.length" class="asset-list-tip warn">
-                  有 {{ unlinkedTaskAssets.length }} 份历史资料未关联关键进展；可在对应进展记录中补充新资料。
-                </div>
+
+              <details v-if="taskAssets.length" class="asset-list" open>
+                <summary class="d-sec-title asset-list-heading">
+                  <span class="asset-list-title">全部资料（{{ taskAssets.length }}）</span>
+                  <span class="material-filters" role="group" aria-label="筛选任务资料" @click.stop>
+                    <button type="button" :aria-pressed="materialFilter === 'all'" @click.prevent="materialFilter = 'all'">全部</button>
+                    <button type="button" :aria-pressed="materialFilter === 'file'" @click.prevent="materialFilter = 'file'">文件</button>
+                    <button type="button" :aria-pressed="materialFilter === 'link'" @click.prevent="materialFilter = 'link'">链接</button>
+                  </span>
+                </summary>
                 <el-empty v-if="!filteredTaskAssets.length" :description="materialFilter === 'link' ? '暂无链接资料' : '暂无文件资料'" :image-size="64" />
                 <div v-for="asset in filteredTaskAssets" :key="asset.id" class="asset-card">
                   <div class="asset-main">
                     <div>
-                      <TaskMaterialLink :asset="asset" @open="openAsset" />
+                      <TaskMaterialLink :asset="asset" :version-no="asset.versionNo" hide-action @open="openAsset" />
+
                       <div class="asset-meta" :title="`上传人：${userName(asset.uploaderId)} · ${formatTime(asset.createdAt)}`">
                         <span :title="userName(asset.uploaderId)">上传人：{{ userName(asset.uploaderId) }}</span> · {{ formatTime(asset.createdAt) }}
                         <span v-if="!assetProgressIds(asset).length"> · 未关联进展</span>
@@ -2574,9 +2594,8 @@ onUnmounted(() => {
                     </div>
                   </div>
                   <div class="asset-actions">
-                    <template v-if="!asset.url">
-                      <el-button link type="primary" @click="downloadAsset(asset)">下载</el-button>
-                    </template>
+                    <TaskAssetVersionActions hide-version :task-id="Number(detail.id)" :asset="asset" :disabled="auth.readOnly || isDetailFrozen || processSaving" @updated="reloadTaskProcess" />
+                    <el-button v-if="!asset.url" class="asset-download-action" link @click="downloadAsset(asset)">下载</el-button>
                     <el-button v-if="!auth.readOnly && !isDetailFrozen && assetProgressIds(asset).length <= 1" link type="danger" @click="removeAsset(asset)">删除</el-button>
                   </div>
                   <p v-if="asset.description" class="asset-desc" :title="asset.description">{{ asset.description }}</p>
@@ -2586,16 +2605,19 @@ onUnmounted(() => {
             </div>
           </el-tab-pane>
 
+
           <el-tab-pane v-if="canViewOperationLogs" label="操作日志" name="logs">
             <div v-if="detail.logs?.length" class="d-logs">
               <div v-for="l in detail.logs" :key="l.id" class="d-log">
                 <div class="d-log-content">
                   <div class="d-log-heading">
                     <span class="d-log-action" :data-tone="logActionMeta(l).type">{{ logActionMeta(l).label }}</span>
-                    <span class="d-log-operator">操作人：{{ l.operatorName || userName(l.operatorId) }}</span>
+                    <span class="d-log-operator">操作人：{{ l.action === 'task_asset_merge' && Number(l.operatorId) === 0 ? '系统维护（用户授权）' : l.operatorName || userName(l.operatorId) }}</span>
                     <span class="d-log-status" v-if="l.fromStatus && l.toStatus">{{ statusLabel(l.fromStatus) }} → {{ statusLabel(l.toStatus) }}</span>
                   </div>
                   <p v-if="logNote(l)" class="d-log-note">{{ logNote(l) }}</p>
+                  <TaskAssetVersionActions v-if="l.action === 'task_asset_update' && l.payload?.assetId" history-only
+                    :task-id="Number(detail.id)" :asset="{ id: l.payload.assetId, filePath: true, title: l.payload.after?.originalName }" />
                 </div>
                 <span class="d-log-time">{{ formatTime(l.createdAt) }}</span>
               </div>
@@ -2627,7 +2649,7 @@ onUnmounted(() => {
 
       <div class="change-tip">
         <span class="tip-dot"></span>
-        定稿项目变更不立即生效：改日期 / 执行人 / 负责人 / 删除任务 / 新增任务，提交后需审批通过才生效（发起人不是项目负责人时，先经项目负责人审核，再经管理办公室负责人终审；项目负责人/管理角色发起则直接终审）。
+        定稿项目变更不立即生效：改日期 / 执行人 / 负责人 / 删除任务 / 新增任务，提交后需审批通过才生效（发起人不是项目负责人时，先经项目负责人审核，再经总经办负责人终审；项目负责人/管理角色发起则直接终审）。
       </div>
 
       <div class="change-section-title">变更任务明细</div>
@@ -2746,7 +2768,7 @@ onUnmounted(() => {
     <el-dialog v-model="exemptDialogVisible" title="确认合理补填" width="460px" align-center :close-on-click-modal="false">
       <p class="exempt-tip">
         确认后，这条补填进展将不再计入异常提醒，记录仍会保留。<br />
-        仅工作日期不晚于任务截止日期时可标记；标记生效后会通知管理办公室负责人知晓，无需审批。<br />
+        仅工作日期不晚于任务截止日期时可标记；标记生效后会通知总经办负责人知晓，无需审批。<br />
         原因<strong>可不填</strong>，也可从常用理由中选择，或直接输入自定义原因。
       </p>
       <el-select
@@ -3157,7 +3179,8 @@ onUnmounted(() => {
   font-size: 13px;
   font-weight: 700;
 }
-.process-form,
+.process-material-error { margin:0 16px 12px; color:var(--el-color-danger, #f56c6c); font-size:14px; line-height:1.7; overflow-wrap:anywhere; }
+.process-form { padding: 16px; background: transparent; }
 .asset-form {
   border: 1px solid #dcebe8;
   border-radius: 16px;
@@ -3191,8 +3214,7 @@ onUnmounted(() => {
 .process-submit { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 16px; }
 .exempt-disabled-reason { margin: 6px 0 0; color: var(--el-text-color-secondary, #909399); font-size: 12px; line-height: 1.6; text-align: right; }
 .process-submit-actions { display: flex; align-items: center; gap: 10px; }
-.process-list,
-.asset-list {
+.process-list {
   border: 1px solid #e4eae7;
   border-radius: 16px;
   padding: 14px;
@@ -3201,6 +3223,15 @@ onUnmounted(() => {
   min-width: 0;
   overflow: hidden;
 }
+.asset-list { margin-top: 20px; padding-top: 16px; border-top: 1px solid #e4eae7; min-width: 0; }
+.asset-list-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; }
+.asset-list-heading::-webkit-details-marker { display: none; }
+.asset-list-title::before { content: '▸'; display: inline-block; width: 16px; color: #64748b; }
+.asset-list[open] .asset-list-title::before { content: '▾'; }
+.material-filters { display: inline-flex; gap: 4px; margin-left: auto; }
+.material-filters button { border: 0; background: transparent; padding: 4px 8px; min-height: 28px; font: inherit; font-size: 12px; font-weight: 400; color: #64748b; cursor: pointer; }
+.material-filters button[aria-pressed='true'] { color: var(--brand-hover); font-weight: 700; background: #edf5f2; border-radius: 4px; }
+.material-filters button:focus-visible { outline: 2px solid var(--brand-hover); outline-offset: 2px; }
 .process-panel > .process-list {
   box-sizing: border-box;
   max-height: var(--detail-scroll-height);
@@ -3292,10 +3323,16 @@ onUnmounted(() => {
 }
 .asset-card {
   display: grid;
+  padding: 12px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
   grid-template-columns: minmax(0, 1fr) auto;
   column-gap: 12px;
   row-gap: 8px;
 }
+.asset-card + .asset-card { margin-top: 0; border-top: 1px solid #e8eef2; }
 .asset-main { justify-content: flex-start; align-items: flex-start; min-width: 0; }
 .asset-main > div { min-width: 0; flex: 1; }
 .asset-meta {
@@ -3779,6 +3816,11 @@ onUnmounted(() => {
     transition: none;
   }
 }
+.asset-actions { align-items:center; flex-wrap:wrap; gap:12px; }
+.asset-actions :deep(.version-history-action) { --el-button-text-color:#64748b; --el-button-hover-link-text-color:#334155; }
+.asset-actions .asset-download-action { --el-button-text-color:#2563eb; --el-button-hover-link-text-color:#1d4ed8; }
+.linked-material-row :deep(.el-button), .asset-actions :deep(.el-button), .daily-actions :deep(.el-button) { height:28px; min-height:28px; margin:0; vertical-align:middle; }
+.daily-actions { align-items:center; }
 </style>
 
 <style>

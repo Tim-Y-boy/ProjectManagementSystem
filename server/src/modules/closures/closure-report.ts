@@ -35,7 +35,7 @@ export function renderClosureReport(r:any,options:{embedded?:boolean}={}) {
     while(task&&!seen.has(String(task.id))){seen.add(String(task.id));parts.unshift(task.title||'未命名任务');task=tasksById.get(String(task.parent_id));}
     return parts.length?parts.join(' / '):fallback;
   };
-  const status:Record<string,string>={approved:'已结项',pending:'待管理办公室审批',rejected:'已退回',withdrawn:'已撤回',voided:'报告已失效'};
+  const status:Record<string,string>={approved:'已结项',pending:'待总经办审批',rejected:'已退回',withdrawn:'已撤回',voided:'报告已失效'};
   const state=Object.prototype.hasOwnProperty.call(status,r.status)?r.status:'pending';
   const evidenceNote=m.hasEvidence?'':'审批通过后生成完整进展与资料快照；历史未留存内容不按零条计算。';
   const asset=(a:any)=>{
@@ -44,7 +44,7 @@ export function renderClosureReport(r:any,options:{embedded?:boolean}={}) {
     return '<li>'+name+'<small>'+(a.file_path?'文件':'链接')+(a.file_size?' · '+e((Number(a.file_size)/1024/1024).toFixed(2))+' MB':'')+'</small>'+(a.description?'<p class="text muted">'+e(a.description)+'</p>':'')+'</li>';
   };
   const progress=(u:any)=>{
-    const materials=u.assets||m.assets.filter((a:any)=>String(a.task_id)===String(u.task_id)&&assetLinksProgress(a,u.id));
+    const materials=u.assets||m.assets.filter((a:any)=>assetLinksProgress(a,u.id));
     const label=({exempted:'合理补填',supplemented:'补填',late:'迟报'} as any)[u.status];
     return '<article class="progress"><header class="progress-head"><div><span class="metadata-label">工作日期</span><strong class="key-date">'+e(u.work_date)+'</strong>'+(label?badge(label,u.status==='exempted'?'supplement':'unknown'):'')+'</div><div class="progress-byline"><span>填报人：'+e(u.author_name||'未留存')+'</span><span>填报时间：<time>'+time(u.created_at)+'</time></span></div></header>'+
       '<div class="progress-evidence"><section class="progress-work"><h4>工作内容</h4><p class="work-content text">'+e(u.content)+'</p>'+

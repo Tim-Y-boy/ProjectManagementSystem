@@ -18,6 +18,7 @@ const READ_HANDLERS: Record<string, readonly string[]> = {
     'listProjects', 'getProjectLogs', 'getProjectProcess', 'getProject',
     'listTasks', 'getTask', 'listDailyUpdates', 'missingWeeklyProgress',
     'listTaskAssets', 'downloadTaskAsset', 'previewTaskAsset', 'taskLogs',
+    'listProjectAssets', 'listAssetVersions', 'downloadAssetVersion',
   ],
   ClosuresController: [
     'rules', 'analysisStatus', 'list', 'ready', 'delays', 'delay', 'audit',

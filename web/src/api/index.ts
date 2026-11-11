@@ -125,8 +125,8 @@ export const tasksApi = {
   reassign: (id: number, assigneeId: number) =>
     http.post<any>(`/tasks/${id}/reassign`, { assigneeId }),
   dailyUpdates: (id: number) => http.get<any[]>(`/tasks/${id}/daily-updates`),
-  saveProgress: (id: number, data: FormData) =>
-    http.post<any>(`/tasks/${id}/progress-save`, data),
+  saveProgress: (id: number, data: FormData, config?: { inlineDuplicateName?: boolean }) =>
+    http.post<any>(`/tasks/${id}/progress-save`, data, config),
   createDailyUpdate: (id: number, data: any) =>
     http.post<any>(`/tasks/${id}/daily-updates`, data),
   updateDailyUpdate: (id: number, updateId: number, data: any) =>
@@ -140,6 +140,18 @@ export const tasksApi = {
   unexemptDailyUpdate: (id: number, updateId: number) =>
     http.delete<any>(`/tasks/${id}/daily-updates/${updateId}/exempt`),
   assets: (id: number) => http.get<any[]>(`/tasks/${id}/assets`),
+  projectAssets: async (id: number) => {
+    try {
+      return await http.get<any[]>(`/tasks/${id}/project-assets`, { allowMissingRoute: true });
+    } catch (error: any) {
+      // During a staggered deployment, keep progress entry usable with the old task-local pool.
+      if (!error.missingRoute) throw error;
+      return http.get<any[]>(`/tasks/${id}/assets`);
+    }
+  },
+  assetVersions: (id: number, assetId: number | string) => http.get<{versions: any[]; affectedTasks: {id: number | string; title: string}[]; canUpdate: boolean}>(`/tasks/${id}/assets/${assetId}/versions`),
+  updateAssetVersion: (id: number, assetId: number | string, data: FormData) => http.post<any>(`/tasks/${id}/assets/${assetId}/versions`, data),
+  downloadAssetVersion: (id: number, assetId: number | string, versionId: number | string) => request.get<any, Blob>(`/tasks/${id}/assets/${assetId}/versions/${versionId}/download`, { responseType: 'blob' }),
   createAsset: (id: number, data: any) => http.post<any>(`/tasks/${id}/assets`, data),
   uploadAsset: (id: number, data: FormData) =>
     http.post<any>(`/tasks/${id}/assets/upload`, data),

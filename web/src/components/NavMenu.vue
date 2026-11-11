@@ -70,7 +70,7 @@ const menus: Array<{
   { name: 'my-todo', label: '我的待办', icon: AlarmClock },
   { name: 'approvals', label: '审批管理', icon: Stamp },
   {
-    name: 'projects', label: '项目任务', icon: Folder, noLink: true,
+    name: 'projects', label: '项目/任务', icon: Folder, noLink: true,
     children: [
       { name: 'projects', label: '项目管理', icon: Folder },
       { name: 'tasks', label: '任务管理', icon: List },

@@ -1,4 +1,5 @@
 import { captureClosureWeeklyReports } from './closure-weekly-reports';
+import { captureClosureAssets } from './closure-assets';
 import { ELIGIBLE, weekNeedsExecutionReportSql } from '../project-weekly-reports/weekly-obligations';
 import { weekHasWorkdaySql } from '../holidays/work-calendar';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
@@ -39,7 +40,7 @@ export class ClosuresService {
       if (!/^\d+$/.test(raw.trim())) return null;
       rows = await m.query(`SELECT id FROM users WHERE id=$1 AND is_active=true AND read_only=false`, [raw.trim()]);
     } else {
-      const dept = process.env[kind === 'gm' ? 'PROJECT_GM_DEPT_NAME' : 'PROJECT_HR_DEPT_NAME'] || (kind === 'gm' ? '管理办公室' : '人事部门');
+      const dept = process.env[kind === 'gm' ? 'PROJECT_GM_DEPT_NAME' : 'PROJECT_HR_DEPT_NAME'] || (kind === 'gm' ? '总经办' : '人力资源部');
       rows = await m.query(`SELECT u.id FROM departments d JOIN users u ON u.id=d.head_user_id WHERE d.name=$1 AND u.is_active=true AND u.read_only=false`, [dept]);
     }
     return rows.length === 1 ? Number(rows[0].id) : null;
@@ -177,7 +178,7 @@ export class ClosuresService {
     const pending=row.snapshot.workflow.reviews.filter(r => r.status === 'pending');
     for (const r of [...new Map<number,any>(pending.map(r=>[Number(r.userId),r])).values()]) {
       await this.enqueue(m,`closure:${row.id}:reviewer:${r.userId}:${row.snapshot.workflow.events.length}`,Number(row.project_id),r.userId,'closure_peer_review',{
-        title:'项目验收审核 · 待您处理',text:`「${row.snapshot.project.name}」已提交结项验收申请，需要您审核。\n审核内容：请核对项目目标完成情况、实际成果及您负责部门的审核事项，并填写审核意见。\n必审与会审同步进行，全部通过后提交管理负责人终审。`,
+        title:'项目验收审核 · 待您处理',text:`「${row.snapshot.project.name}」已提交结项验收申请，需要您审核。\n审核内容：请核对项目目标完成情况、实际成果及您负责部门的审核事项，并填写审核意见。\n必审与会审同步进行，全部通过后提交总经理终审。`,
         closureId:row.id,reviewerId:r.userId,eventIndex:row.snapshot.workflow.events.length,path:`/closures?request=${row.id}`,label:'查看并审核',
       });
     }
@@ -212,7 +213,7 @@ export class ClosuresService {
       if (pending) throw new BadRequestException('请先处理完待审批的计划变更');
       const reasons = validateClosure(f, body);
       const approverId = await this.recipient('gm', m);
-      if (!approverId) throw new BadRequestException('未找到唯一且启用的管理办公室负责人，请联系管理员配置');
+      if (!approverId) throw new BadRequestException('未找到唯一且启用的总经办负责人，请联系管理员配置');
       const application = validateApplication(body);
       const charters = application.charterFileIds.length ? await m.query('SELECT * FROM closure_application_files WHERE project_id=$1 AND id=ANY($2::bigint[])',[id,application.charterFileIds]) : [];
       if (charters.length !== application.charterFileIds.length) throw new BadRequestException('立项书不存在或不属于本项目，请重新上传');
@@ -243,7 +244,7 @@ export class ClosuresService {
       const [requester] = await m.query(`SELECT id,name FROM users WHERE id=$1`, [u.userId]);
       const [approver] = await m.query(`SELECT id,name FROM users WHERE id=$1`, [approverId]);
       const updates = await m.query(`SELECT d.*,d.work_date::text AS work_date,u.name AS author_name FROM task_daily_updates d LEFT JOIN users u ON u.id=d.user_id WHERE d.project_id=$1 ORDER BY d.work_date,d.id`,[id]);
-      const assets = await m.query('SELECT * FROM task_assets WHERE project_id=$1 ORDER BY id',[id]);
+      const assets = await captureClosureAssets(m, id);
       const weeklyReports = await captureClosureWeeklyReports(m, id);
       const snapshot = { ...f, weeklyReports, owners, requester, approver, ...reasons, workflow, previousRequestId:previous?.id || null,
         application:{...application,charters}, approvalScope:{version:config.version,projectDeptId:Number(f.project.dept_id),rules:prepareDepartmentScope(config.rules,departments,Number(f.project.dept_id),u.userId,ownerIds),identity,requesterId:u.userId,ownerIds,decisions:body.scope.decisions,excluded:scope.excluded,analysisId:analysis?.id||null,analysisResult:analysis?.result||null}, updates,assets, timingAlerts: closureTimingAlerts(f), comparison: '北京时间自然日；任务验收完成、申请结项、审批生效分别记录，申请前等待与审批等待分开统计' };
@@ -278,7 +279,7 @@ export class ClosuresService {
         } else if (r.snapshot.workflow.stage === 'final') await this.finalNotice(m,result);
         return result;
       }
-      if (String(r.approver_id) !== String(u.userId)) throw new ForbiddenException('仅本申请指定的管理负责人可终审');
+      if (String(r.approver_id) !== String(u.userId)) throw new ForbiddenException('仅本申请指定的总经理可终审');
       const text = String(comment || '').trim();
       if (!approve && !text) throw new BadRequestException('请填写退回原因');
       if (text.length > 4000) throw new BadRequestException('审核意见不能超过4000字');
@@ -297,7 +298,7 @@ export class ClosuresService {
         if (!f.ready || f.completedAt !== r.snapshot.completedAt || f.plannedEnd !== r.snapshot.plannedEnd || taskEvidence(f.tasks) !== taskEvidence(r.snapshot.tasks)) throw new BadRequestException('任务或计划依据已变化，请退回后重新申请');
         await this.observeProject(Number(r.project_id), m);
         const updates = await m.query(`SELECT d.*,d.work_date::text AS work_date,u.name AS author_name FROM task_daily_updates d LEFT JOIN users u ON u.id=d.user_id WHERE d.project_id=$1 ORDER BY d.work_date,d.id`, [r.project_id]);
-        const assets = await m.query(`SELECT * FROM task_assets WHERE project_id=$1 ORDER BY id`, [r.project_id]);
+        const assets = await captureClosureAssets(m, Number(r.project_id));
         const changes = await m.query(`SELECT c.*,COALESCE((SELECT jsonb_agg(to_jsonb(i) || jsonb_build_object('task_title',t.title) ORDER BY i.id)
           FROM plan_change_items i LEFT JOIN tasks t ON t.id=i.task_id WHERE i.change_id=c.id),'[]'::jsonb) AS items
           FROM plan_changes c WHERE c.project_id=$1 ORDER BY c.created_at,c.id`, [r.project_id]);
@@ -461,7 +462,7 @@ export class ClosuresService {
       const disabledReason = reasonableSupplementDisabledReason(t.due_at, { workDate: row.work_date, createdAt: row.created_at });
       if (disabledReason) throw new BadRequestException(disabledReason);
       const gm = await this.recipient('gm', m);
-      if (!gm) throw new BadRequestException('请先配置有效的管理办公室负责人，保证合理补填告知可送达');
+      if (!gm) throw new BadRequestException('请先配置有效的总经办负责人，保证合理补填告知可送达');
       const text = String(reason || '').trim();
       if (text.length > 4000) throw new BadRequestException('原因不能超过4000字');
       const [actor] = await m.query(`SELECT name FROM users WHERE id=$1`, [u.userId]);
@@ -567,7 +568,7 @@ export class ClosuresService {
       const p = await this.project(Number(r.project_id),m);
       if (current.status !== 'approved' || p.closure_state !== 'closed') throw new BadRequestException('仅有效结项报告可申请重开');
       if ((await m.query(`SELECT id FROM closure_reopens WHERE project_id=$1 AND status='pending'`,[r.project_id])).length) throw new BadRequestException('已有重开申请待审批');
-      const gm = await this.recipient('gm',m); if (!gm) throw new BadRequestException('请配置有效的管理办公室负责人');
+      const gm = await this.recipient('gm',m); if (!gm) throw new BadRequestException('请配置有效的总经办负责人');
       const [row] = await m.query(`INSERT INTO closure_reopens(closure_id,project_id,requester_id,approver_id,reason) VALUES($1,$2,$3,$4,$5) RETURNING *`,[id,r.project_id,u.userId,gm,text]);
       await this.enqueue(m,`reopen:${row.id}:review`,Number(r.project_id),gm,'reopen_review',{title:'项目重开纠错待审批',text:`「${p.name}」申请重开纠错：${text}。通过后恢复编辑，原报告 JX-${id} 将标记失效并保留。`,path:`/closure-reports?request=${id}`,label:'查看并审批'});
       return row;
@@ -630,7 +631,7 @@ export class ClosuresService {
     const [row]=await this.db.query(`SELECT project_id FROM ${table} WHERE id=$1`,[id]);
     if(!row) throw new NotFoundException('记录不存在');
     return this.locked(Number(row.project_id),async m=>{
-      if(!await this.canHandle(u,Number(row.project_id),m)) throw new ForbiddenException('仅项目负责人、管理办公室负责人、HR负责人或管理员可处理');
+      if(!await this.canHandle(u,Number(row.project_id),m)) throw new ForbiddenException('仅项目负责人、总经办负责人、HR负责人或管理员可处理');
       const [saved]=await m.query(`INSERT INTO closure_followups(project_id,kind,target_id,status,comment,user_id) VALUES($1,$2,$3,$4,$5,$6) RETURNING *`,[row.project_id,kind,id,body.status,comment,u.userId]);
       return saved;
     });

@@ -14,15 +14,15 @@ function fixture({ status = 'doing', materials = [], reason = null, progress = 1
   const logs = [], sent = [];
   const service = Object.create(TasksService.prototype);
   service.weeklyProgress = { missingWeeksForTask: async () => [] };
-  service.tasks = { findOne: async () => task, count: async () => 0, save: async row => row };
-  service.tasks.manager = { transaction: callback => callback({ getRepository: entity => ({
+  service.tasks = { findOne: async () => task, findOneBy: async () => task, count: async () => 0, save: async row => row };
+  service.tasks.manager = { transaction: callback => callback({ query: async () => [], getRepository: entity => ({
     Task: service.tasks, TaskAsset: service.assets, TaskDailyUpdate: service.dailyUpdates, TaskLog: service.logs,
   })[entity.name] }) };
   service.projects = { findOne: async () => ({ id: 18, name: '现场改造', ownerId: 16,
     deptId: 4, planLocked: true, status: 'active', closureState: 'none' }) };
   service.projectOwners = { count: async () => 0 };
   service.assignees = { find: async ({ where }) => [{ userId: where.role === 'assignee' ? 71 : 30 }] };
-  service.assets = { find: async ({ where }) => materials.filter(row => row.taskId === where.taskId) };
+  service.assets = { find: async ({ where }) => materials.filter(row => where.projectId != null ? (row.projectId ?? 18) === where.projectId : row.taskId === where.taskId) };
   service.dailyUpdates = { count: async () => progress,
     find: async () => [{ content: '现场沟通完成', workDate: '2026-10-08' }] };
   service.addLog = async (...args) => logs.push(args);
@@ -171,6 +171,8 @@ test('link creation cannot forge an uploaded file or store an invalid link', asy
   const f = fixture();
   f.service.assertCanWriteTaskProcess = async () => {};
   f.service.dailyUpdates.findOne = async () => ({ id: 1, taskId: 531 });
+  f.service.dailyUpdates.findOneBy = async () => ({ id: 1, taskId: 531 });
+  f.service.logs = { create: data => data, save: async data => data };
   const saved = [];
   f.service.assets.create = data => data;
   f.service.assets.save = async data => { saved.push(data); return { id: 1, ...data }; };

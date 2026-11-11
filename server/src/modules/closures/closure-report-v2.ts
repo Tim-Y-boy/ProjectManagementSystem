@@ -1,5 +1,5 @@
 import { renderClosureWeeklyReports, closureWeeklyStyle } from './closure-weekly-reports';
-import { reportModel, reportHierarchy, reportDate } from './closure-report-model';
+import { reportModel, reportHierarchy, reportDate, reportAssetBelongsToTask } from './closure-report-model';
 import { executiveReport } from './closure-report-summary';
 import { completionChart } from './closure-report-charts';
 import { closureReportV2Style } from './closure-report-v2-style';
@@ -21,7 +21,7 @@ details{border:1px solid var(--line);border-radius:5px;margin-top:12px;padding:1
 
 export function renderClosureReportV2(r: any, options: {embedded?:boolean} = {}) {
   const m=reportModel(r), d=m.data, brief=executiveReport(m), a=d.application || {}, w=d.workflow;
-  const states: Record<string,string>={approved:'已结项',voided:'报告已失效',rejected:'已退回',withdrawn:'已撤回',pending:w.stage==='final'?'待管理负责人终审':'审核中'};
+  const states: Record<string,string>={approved:'已结项',voided:'报告已失效',rejected:'已退回',withdrawn:'已撤回',pending:w.stage==='final'?'待总经理终审':'审核中'};
   const status=states[r.status]||'申请预览';
   const ownerNames=(d.owners||[]).map(o=>o.name).join('、');
   const people=[...new Set<string>((d.tasks||[]).flatMap(t=>(t.participants||[]).filter(p=>p.role==='assignee').map(p=>p.name)))].join('、');
@@ -52,7 +52,7 @@ export function renderClosureReportV2(r: any, options: {embedded?:boolean} = {})
     const entries=activeTasks.filter(t=>ids.has(String(t.id))).map(t=>{
       const updates=m.updates.filter(u=>String(u.task_id)===String(t.id)&&String(u.content||'').trim())
         .slice().sort((a,b)=>String(a.work_date||'').localeCompare(String(b.work_date||''))||Number(a.id||0)-Number(b.id||0));
-      const assets=m.assets.filter(f=>String(f.task_id)===String(t.id));
+      const assets=m.assets.filter(f=>reportAssetBelongsToTask(f,t.id,m.updates));
       const latest=updates[updates.length-1];
       const summary=latest?String(latest.content):
         assets.length?'已留存交付资料：'+assets.map(f=>f.original_name||f.title||'资料').join('、'):'暂无完成情况说明，待补充';
@@ -84,10 +84,10 @@ export function renderClosureReportV2(r: any, options: {embedded?:boolean} = {})
     +renderClosureWeeklyReports(d.weeklyReports, options.embedded)
     +`<h3 class="sub-title">质量与交付物情况</h3>`+(materials.length?table(['序号','交付物名称','类型'],materials.map((f,i)=>[String(i+1),assetLink(f),f.file_path?'文件':'链接'])):'<p class="note">未上传交付资料，具体成果见下文。</p>');
   const reviewRows=w.reviews.map(x=>[e((x.departmentName?x.departmentName+' · ':'')+x.name),e(({pending:'待审核',approved:'通过',rejected:'退回'})[x.status]),e(x.comment||'—'),day(x.reviewedAt),x.sourceRequestId?`沿用申请 #${e(x.sourceRequestId)} 的审核`:'本次审核']);
-  reviewRows.push([`管理负责人（最后一级）：${e(d.approver?.name)}`,w.finalDecision==='approved'?'通过':w.finalDecision==='rejected'?'退回':w.stage==='final'?'待终审':'待前置审核完成',e(d.approvalComment||((w.finalDecision)?r.review_comment:null)||'—'),day(w.finalDecision?(d.closedAt||r.reviewed_at):null),'管理负责人终审']);
+  reviewRows.push([`总经理（最后一级）：${e(d.approver?.name)}`,w.finalDecision==='approved'?'通过':w.finalDecision==='rejected'?'退回':w.stage==='final'?'待终审':'待前置审核完成',e(d.approvalComment||((w.finalDecision)?r.review_comment:null)||'—'),day(w.finalDecision?(d.closedAt||r.reviewed_at):null),'总经理终审']);
   const checklists=w.version===3?w.reviews.map(review=>`<h3 class="sub-title">${e(review.departmentName)} · 审核清单</h3>`+table(['核验事项','结果','说明'],(review.checklist||[]).map((text,i)=>[e(text),e(({yes:'符合',no:'不符合',na:'不适用'})[review.checklistResults?.[i]?.answer]||'待核验'),e(review.checklistResults?.[i]?.note||'—')]))).join(''):'';
   const approvals=`<div class="approval-table">${table(['审核人','审核结果','审核意见','审核日期','说明'],reviewRows)}</div>`+checklists;
   const sections=section('s1','一','基本信息',basic)+section('s2','二','项目背景与目标',`<h3 class="sub-title">项目背景</h3>${paragraph(a.background)}<h3 class="sub-title">项目目标</h3>${paragraph(a.objective)}`)
     +section('s3','三','项目执行情况（进度与质量）',execution)+section('s4','四',w.version===3?'项目实际成果':'项目成果',paragraph(a.outcome))+section('s5','五','审核记录',approvals);
-  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${e(d.project?.name)} · 项目结项报告</title><style>${closureReportV2Style}${extraStyle}${closureWeeklyStyle}</style></head><body><main class="doc"><header class="doc-head"><div class="head-meta"><span>申请编号：${e(r.id)}</span><span>日期：${day(d.closedAt||r.requested_at)}</span></div><h1 class="doc-title">${e(d.project?.name)}</h1><p class="doc-sub">项目结项报告${r.report?'':' · 申请预览'}</p><div class="status-line"><span class="badge ${r.status==='voided'?'warn':'ok'}">${e(status)}</span></div></header><nav class="toc">${['基本信息','项目背景与目标','项目执行情况','项目成果','审核记录'].map((v,i)=>`<a class="nav-link" href="#s${i+1}">${v}</a>`).join('')}</nav>${sections}<footer class="signoff"><span>项目负责人：${e(ownerNames)}</span><span>管理负责人终审：${e(d.approver?.name)}</span><span>日期：${day(d.closedAt||r.requested_at)}</span></footer></main></body></html>`;
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${e(d.project?.name)} · 项目结项报告</title><style>${closureReportV2Style}${extraStyle}${closureWeeklyStyle}</style></head><body><main class="doc"><header class="doc-head"><div class="head-meta"><span>申请编号：${e(r.id)}</span><span>日期：${day(d.closedAt||r.requested_at)}</span></div><h1 class="doc-title">${e(d.project?.name)}</h1><p class="doc-sub">项目结项报告${r.report?'':' · 申请预览'}</p><div class="status-line"><span class="badge ${r.status==='voided'?'warn':'ok'}">${e(status)}</span></div></header><nav class="toc">${['基本信息','项目背景与目标','项目执行情况','项目成果','审核记录'].map((v,i)=>`<a class="nav-link" href="#s${i+1}">${v}</a>`).join('')}</nav>${sections}<footer class="signoff"><span>项目负责人：${e(ownerNames)}</span><span>总经理终审：${e(d.approver?.name)}</span><span>日期：${day(d.closedAt||r.requested_at)}</span></footer></main></body></html>`;
 }
