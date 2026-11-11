@@ -22,7 +22,7 @@ tok_*.txt
 # Keep only generic technical documentation.
 docs/*
 !docs/01-需求与范围.md
-!docs/04-数据库设计.md
-!docs/05-接口设计.md
-!docs/06-飞书对接.md
+!docs/03-数据库设计.md
+!docs/04-接口设计.md
+!docs/05-飞书对接.md
 !docs/third-party-dependencies.json
