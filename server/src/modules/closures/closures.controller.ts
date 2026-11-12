@@ -28,6 +28,7 @@ export class ClosuresController {
   @Post('followups/:kind/:id') followup(@CurrentUser() u: JwtPayload, @Param('kind') kind: string, @Param('id', ParseIntPipe) id: number, @Body() body: any) { return this.closures.followup(u,kind,id,body); }
   @Post('reopens/:id/review') reopenReview(@CurrentUser() u: JwtPayload, @Param('id', ParseIntPipe) id: number, @Body() body: any) { return this.closures.reviewReopen(u,id,body.approve,body.comment); }
   @Get('projects/:id/preview') preview(@CurrentUser() u: JwtPayload, @Param('id', ParseIntPipe) id: number) { return this.closures.preview(u, id); }
+  @Post('projects/:id/report-preview') previewReport(@CurrentUser() u: JwtPayload, @Param('id', ParseIntPipe) id: number, @Body() body: any) { return this.closures.previewReport(u, id, body); }
   @Post('projects/:id/charters')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 50 * 1024 * 1024, files: 1 } }))
   uploadCharter(@CurrentUser() u: JwtPayload, @Param('id', ParseIntPipe) id: number, @UploadedFile() file: any) { return this.closures.uploadCharter(u,id,file); }

@@ -142,7 +142,7 @@ async function mockLogin(role: string) {
 
     <main class="login-shell">
       <section class="brand-panel" aria-label="系统说明">
-        <img src="/project-logo.svg" alt="Project Management" class="brand-logo" />
+        <img src="/project-logo.png" alt="Project Management" class="brand-logo" />
         <div class="brand-copy">
           <p class="brand-kicker">项目协作平台</p>
           <h1>项目协作平台-项目管理系统</h1>

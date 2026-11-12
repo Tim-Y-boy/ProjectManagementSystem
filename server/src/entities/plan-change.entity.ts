@@ -25,12 +25,12 @@ export class PlanChange {
   @Column({ length: 16, default: 'pending' })
   status: string; // pending | approved | rejected | cancelled
 
-  // ---- 两级审批链（管理办公室终审）----
-  // 当前等待审批的阶段：owner=待项目负责人 | final=待管理办公室负责人/终审
+  // ---- 两级审批链（总经办终审）----
+  // 当前等待审批的阶段：owner=待项目负责人 | final=待总经办负责人/终审
   @Column({ length: 12, default: 'final' })
   stage: string;
 
-  // 终审人（管理办公室负责人，找不到时兜底 admin/leader），提交时解析并固定
+  // 终审人（总经办负责人，找不到时兜底 admin/leader），提交时解析并固定
   @Column({ name: 'final_approver_id', type: 'bigint', nullable: true })
   finalApproverId: number | null;
 

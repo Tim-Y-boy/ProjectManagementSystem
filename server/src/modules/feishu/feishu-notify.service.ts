@@ -217,7 +217,7 @@ export class FeishuNotifyService {
 
     try {
       // 本地联调转发：FEISHU_NOTIFY_REDIRECT_USER_ID 填一个内部 user id 后，
-      // 所有出站通知统一改发给他，避免打扰真实收件人（如管理办公室负责人/管理负责人）。
+      // 所有出站通知统一改发给他，避免打扰真实收件人（如总经办负责人/总经理）。
       let recipient = recipientUserId;
       const redirectRaw = String(process.env.FEISHU_NOTIFY_REDIRECT_USER_ID || '').trim();
       const redirectId = redirectRaw ? Number(redirectRaw) : NaN;

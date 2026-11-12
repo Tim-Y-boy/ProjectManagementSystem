@@ -1,7 +1,7 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const {validateApplication, createWorkflow, reviewWorkflow, transferWorkflow}=require('../src/modules/closures/closure-workflow');
-const people=[{id:2,name:'管理负责人'},{id:3,name:'A'},{id:4,name:'B'},{id:5,name:'C'}];
+const people=[{id:2,name:'总经理'},{id:3,name:'A'},{id:4,name:'B'},{id:5,name:'C'}];
 const body={background:'背景',objective:'目标',outcome:'成果',charterFileIds:[],noCharterReason:'历史项目无立项书',reviewerIds:[3,4]};
 const build=(previous,ids=[3,4])=>createWorkflow(ids,people,2,1,previous);
 test('application requires charter or explanation and narrative',()=>{
@@ -10,7 +10,7 @@ test('application requires charter or explanation and narrative',()=>{
  assert.throws(()=>validateApplication({...body,background:' '}),/背景/);
 });
 test('final reviewer and duplicate or inactive reviewers cannot be added',()=>{
- assert.throws(()=>build(null,[2]),/管理负责人/); assert.throws(()=>build(null,[3,3]),/重复/);
+ assert.throws(()=>build(null,[2]),/总经理/); assert.throws(()=>build(null,[3,3]),/重复/);
  assert.throws(()=>build(null,[8]),/有效/); assert.throws(()=>build(null,[]),/至少/);
 });
 test('ordinary rejection preserves approvals with original dates and new reviewers pending',()=>{
@@ -27,7 +27,7 @@ test('GM rejection resets every approval even after prior reuse',()=>{
  assert.equal(next.round,2); assert.ok(next.reviews.every(r=>r.status==='pending'&&!r.sourceRequestId));
 });
 test('transfer revokes sender, prevents GM and existing reviewer, records actual reviewer',()=>{
- const w=build(); assert.throws(()=>transferWorkflow(w,3,2,people,2,1,'转交','now'),/管理负责人/);
+ const w=build(); assert.throws(()=>transferWorkflow(w,3,2,people,2,1,'转交','now'),/总经理/);
  assert.throws(()=>transferWorkflow(w,3,4,people,2,1,'转交','now'),/已在/);
  transferWorkflow(w,3,5,people,2,1,'由C核验','2026-10-13T01:00:00Z');
  assert.throws(()=>reviewWorkflow(w,3,true,'通过','now'),/待审核/);

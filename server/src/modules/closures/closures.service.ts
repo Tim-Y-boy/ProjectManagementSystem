@@ -202,6 +202,15 @@ export class ClosuresService {
   }
 
   async submit(u: JwtPayload, id: number, body: any) {
+    return this.prepareApplication(u, id, body, false);
+  }
+
+  async previewReport(u: JwtPayload, id: number, body: any) {
+    return this.prepareApplication(u, id, body, true);
+  }
+
+  private async prepareApplication(u: JwtPayload, id: number, body: any, previewOnly: boolean) {
+    if (u.readOnly) throw new ForbiddenException('只读账号不能申请结项');
     return this.locked(id, async (m) => {
       const owners = await this.owners(id, m);
       if (!u.roles.includes('admin') && !owners.some((o) => String(o.id) === String(u.userId))) throw new ForbiddenException('仅项目负责人或管理员可申请结项');
@@ -248,6 +257,10 @@ export class ClosuresService {
       const weeklyReports = await captureClosureWeeklyReports(m, id);
       const snapshot = { ...f, weeklyReports, owners, requester, approver, ...reasons, workflow, previousRequestId:previous?.id || null,
         application:{...application,charters}, approvalScope:{version:config.version,projectDeptId:Number(f.project.dept_id),rules:prepareDepartmentScope(config.rules,departments,Number(f.project.dept_id),u.userId,ownerIds),identity,requesterId:u.userId,ownerIds,decisions:body.scope.decisions,excluded:scope.excluded,analysisId:analysis?.id||null,analysisResult:analysis?.result||null}, updates,assets, timingAlerts: closureTimingAlerts(f), comparison: '北京时间自然日；任务验收完成、申请结项、审批生效分别记录，申请前等待与审批等待分开统计' };
+      if (previewOnly) {
+        return { reportHtml: renderClosureReport({ status: 'preview', snapshot }),
+          previewOnly: true };
+      }
       const [row] = await m.query(`INSERT INTO project_closures(project_id,requester_id,approver_id,snapshot,delay_reason,overdue_reason)
         VALUES($1,$2,$3,$4,$5,$6) RETURNING *`, [id, u.userId, approverId, snapshot, reasons.delayReason, reasons.overdueReason]);
       await m.query(`UPDATE projects SET closure_state='pending' WHERE id=$1`, [id]);

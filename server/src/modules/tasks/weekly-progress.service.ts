@@ -282,7 +282,7 @@ export class WeeklyProgressService {
     if (batch.ownerEntry) {
       const path = `/daily-report?tab=weekly&weekStart=${batch.week}`;
       const url = this.absoluteUrl(path);
-      const lines = [`请负责人在下周一前提交本周周报，提交后若需要修改需管理负责人审批。${url ? ` [负责人填写项目周报](${url})` : ''}`];
+      const lines = [`请负责人在下周一前提交本周周报，提交后若需要修改需总经理审批。${url ? ` [负责人填写项目周报](${url})` : ''}`];
       appendWeeklySection(card, '负责人填写项目周报', lines);
       card.header.title.content = '每周工作汇报';
       fallback += '\n负责人填写项目周报\n' + lines.join('\n');

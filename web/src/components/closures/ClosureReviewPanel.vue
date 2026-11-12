@@ -30,7 +30,7 @@ async function transfer(){
 <template>
   <section v-if="w" class="review-panel">
     <h3>结项审核 · 第 {{ w.round }} 轮</h3>
-    <p class="final-hint">最后一级审核人：<strong>管理负责人 · {{ request.snapshot.approver?.name }}</strong>。所有前置审核通过后进入终审。</p>
+    <p class="final-hint">最后一级审核人：<strong>总经理 · {{ request.snapshot.approver?.name }}</strong>。所有前置审核通过后进入终审。</p>
     <el-table :data="w.reviews" size="small">
       <el-table-column v-if="w.version===3" prop="departmentName" label="审核部门" min-width="100" />
       <el-table-column prop="name" label="审核人" min-width="90" />
@@ -43,7 +43,7 @@ async function transfer(){
       <el-input v-model="comment" type="textarea" :autosize="{minRows:3,maxRows:8}" maxlength="4000" show-word-limit placeholder="请填写核验结果与审核意见" />
       <div class="review-buttons"><el-button v-if="w.version!==3" :disabled="saving" @click="showTransfer=true">转交审核</el-button><el-button type="danger" plain :loading="saving" @click="decide(false)">退回</el-button><el-button type="primary" :loading="saving" @click="decide(true)">通过审核</el-button></div>
     </div>
-    <details v-if="request.reviewHistory?.length"><summary>审核与转交历史</summary><div v-for="h in request.reviewHistory" :key="h.id" class="history-entry"><strong>申请 #{{ h.id }}</strong><div v-for="(event,i) in h.workflow?.events||[]" :key="i">{{ formatBeijingTime(event.at) }} · {{ event.type==='transfer'||event.type==='reviewer_replaced'?`${event.fromName} ${event.type==='transfer'?'转交给':'替换为'} ${event.toName}：${event.reason}`:`${event.name||'管理负责人'} · ${event.type.includes('rejected')?'退回':'通过'}：${event.comment}` }}</div></div></details>
+    <details v-if="request.reviewHistory?.length"><summary>审核与转交历史</summary><div v-for="h in request.reviewHistory" :key="h.id" class="history-entry"><strong>申请 #{{ h.id }}</strong><div v-for="(event,i) in h.workflow?.events||[]" :key="i">{{ formatBeijingTime(event.at) }} · {{ event.type==='transfer'||event.type==='reviewer_replaced'?`${event.fromName} ${event.type==='transfer'?'转交给':'替换为'} ${event.toName}：${event.reason}`:`${event.name||'总经理'} · ${event.type.includes('rejected')?'退回':'通过'}：${event.comment}` }}</div></div></details>
     <el-dialog v-model="showTransfer" title="转交审核" width="min(520px,94vw)" append-to-body>
       <el-form label-position="top"><el-form-item label="接收人" required><el-select v-model="target" filterable placeholder="选择实际负责审核的人员" style="width:100%"><el-option v-for="p in candidates" :key="p.id" :value="Number(p.id)" :label="p.name" /></el-select></el-form-item><el-form-item label="转交原因" required><el-input v-model="reason" type="textarea" :rows="3" maxlength="2000" show-word-limit /></el-form-item></el-form>
       <template #footer><el-button @click="showTransfer=false">取消</el-button><el-button type="primary" :loading="saving" @click="transfer">确认转交</el-button></template>

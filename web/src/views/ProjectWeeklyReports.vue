@@ -95,8 +95,10 @@ function close() { router.push({ path: route.path, query: { tab:'weekly', ...(ro
         <div class="report-content">
         <div class="card-top"><h4>{{ row.projectName }}</h4><el-tag v-if="row.status !== 'missing' && row.overallStatus" :type="row.overallStatus === 'blocked' ? 'danger' : row.overallStatus === 'risk' ? 'warning' : 'success'">{{ {normal:'正常推进',risk:'存在风险',blocked:'已受阻'}[row.overallStatus] }}</el-tag><el-tag :type="row.status === 'submitted' ? 'success' : 'info'">{{ {missing:'未填写',draft:'草稿',submitted:'已提交'}[row.status] }}</el-tag><el-tag v-if="row.overdue && row.status !== 'submitted'" type="danger">逾期未提交</el-tag></div>
         <div class="report-meta muted"><UserAvatar :name="row.ownerName || '未指定负责人'" :avatar-url="row.ownerAvatarUrl" show-name :size="24" /><span class="report-department">{{ row.deptName || '未指定部门' }}</span><span class="report-period">{{ row.weekStart }} 至 {{ row.weekEnd }}</span></div>
-        <p v-if="row.risks" class="excerpt"><strong>主要风险：</strong>{{ row.risks }}</p>
-        <p v-if="row.coordination" class="excerpt"><strong>需协调：</strong>{{ row.coordination }}</p>
+        <p v-if="row.achievements" class="excerpt"><strong>本周成果：</strong><span class="excerpt-text">{{ row.achievements }}</span></p>
+        <p v-if="row.risks" class="excerpt"><strong>主要风险：</strong><span class="excerpt-text">{{ row.risks }}</span></p>
+        <p v-if="row.coordination" class="excerpt"><strong>需协调：</strong><span class="excerpt-text">{{ row.coordination }}</span></p>
+        <p v-if="row.nextWeek" class="excerpt"><strong>下周安排：</strong><span class="excerpt-text">{{ row.nextWeek }}</span></p>
         </div>
         <el-button :type="section.key === 'write' ? 'primary' : 'default'" size="large" class="report-action" :aria-label="`${row.projectName}：${section.key === 'write' ? '填写周报' : '查看周报'}`" @click="open(row)">{{ section.key === 'write' ? (row.status === 'missing' ? '填写周报' : '继续编辑') : '查看周报' }} <span aria-hidden="true">→</span></el-button>
       </article>
@@ -115,6 +117,9 @@ function close() { router.push({ path: route.path, query: { tab:'weekly', ...(ro
 .report-card { display: flex; gap: 24px; align-items: center; justify-content: space-between; }
 .report-card--write { border-left: 4px solid var(--el-color-primary); }
 .report-content { min-width: 0; flex: 1; }
+.excerpt { display: grid; grid-template-columns: 5em minmax(0, 1fr); white-space: normal; overflow: visible; }
+.excerpt > strong { white-space: nowrap; }
+.excerpt-text { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .report-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 13px 0; }
 .card-top h4 { margin: 0; font-size: 17px; overflow-wrap: anywhere; }
 .report-action { min-width: 144px; flex-shrink: 0; font-weight: 600; }

@@ -5,6 +5,7 @@ import { UploadFilled, Document, Delete } from '@element-plus/icons-vue';
 import { closuresApi } from '@/api';
 import CharterAnalysisPanel from './CharterAnalysisPanel.vue';
 import ClosureScopeFields from './ClosureScopeFields.vue';
+import ClosureReport from './ClosureReport.vue';
 const props=defineProps<{preview:any; saving:boolean}>();
 const emit=defineEmits<{submit:[body:any];cancel:[]}>();
 const form=reactive({background:'',objective:'',outcome:'',noCharterReason:''});
@@ -15,6 +16,8 @@ const missingReportFields=computed(()=>(Object.keys(reportLabels) as ReportField
 const fieldError=(key:ReportField)=>attemptedSubmit.value&&!form[key].trim()?`请填写${reportLabels[key]}`:'';
 const scope=ref<any>(null),decisions=ref<any[]>([]),analysis=ref<any>(null);
 const confirming=shallowRef(false);
+const reportVisible=shallowRef(false), reportLoading=shallowRef(false);
+const reportPreview=ref<any>(null), previewBody=ref<any>(null);
 const resolvedDecisions=computed(()=>(scope.value?.effectiveRules||[]).filter((r:any)=>!r.mandatoryReason&&!r.excludedReason).map((r:any)=>{
   const decision=decisions.value.find(d=>d.ruleId===r.id);
   const answer=decision?.answer;
@@ -26,6 +29,7 @@ const selectedFileIds=computed(()=>noCharter.value?[]:files.value.map(f=>Number(
 const files=ref<any[]>([]); const noCharter=shallowRef(false); const uploading=shallowRef(false);
 watch(()=>props.preview,p=>{
   attemptedSubmit.value=false;
+  reportVisible.value=false; reportPreview.value=null; previewBody.value=null;
   const old=p.draft?.data||p.previous?.snapshot?.application||{};
   Object.assign(form,{background:old.background||p.project.background||'',objective:old.objective||p.project.objective||'',outcome:old.outcome||'',noCharterReason:old.noCharterReason||''});
   scope.value=p.scope;analysis.value=null;manual.value=false;draftVersion.value=p.draft?.version||0;
@@ -60,7 +64,7 @@ async function upload(event:Event){
   finally{uploading.value=false;}
 }
 async function submit(){
-  if(confirming.value||props.saving)return;
+  if(confirming.value||props.saving||reportLoading.value)return;
   attemptedSubmit.value=true;
   if(missingReportFields.value.length){ElMessage.warning(`请填写${missingReportFields.value.map(key=>reportLabels[key]).join('、')}`);return;}
   if(noCharter.value?!form.noCharterReason.trim():!files.value.length){ElMessage.warning('请上传立项书；无立项书时必须填写说明');return;}
@@ -68,6 +72,17 @@ async function submit(){
   const body=payload();
   const unresolved=scope.value.effectiveRules.filter((r:any)=>body.scope.decisions.some((d:any)=>d.ruleId===r.id&&d.answer==='unknown'));
   if(unresolved.length){ElMessage.warning(`请为${unresolved.map((r:any)=>r.departmentName).join('、')}选择“是”或“否”，AI 无法判断的部门需人工确认`);return;}
+  reportLoading.value=true;
+  try {
+    const result=await closuresApi.previewReport(Number(props.preview.project.id),body);
+    reportPreview.value=result; previewBody.value=JSON.parse(JSON.stringify(body)); reportVisible.value=true;
+  } catch(e:any) { if(!e.messageShown)ElMessage.error(e.message||'报告预览失败，请重试'); }
+  finally { reportLoading.value=false; }
+}
+async function confirmReport(){
+  if(confirming.value||props.saving||!previewBody.value)return;
+  const body=previewBody.value;
+  if(JSON.stringify(body)!==JSON.stringify(payload())){reportVisible.value=false;ElMessage.warning('内容已变化，请重新预览报告');return;}
   const rules=scope.value.effectiveRules.filter((r:any)=>!r.excludedReason);
   const included=(r:any)=>r.mandatoryReason||body.scope.decisions.some((d:any)=>d.ruleId===r.id&&d.answer==='yes');
   const names=(items:any[])=>items.map(r=>r.departmentName).join('、')||'无';
@@ -80,13 +95,14 @@ async function submit(){
       h('p','必审与会审同时进行，全部通过后通知领导终审。'),
     ]),'确认提交结项审核',{confirmButtonText:'确认并提交',cancelButtonText:'返回修改',closeOnClickModal:false});
   }catch{return;}finally{confirming.value=false;}
+  reportVisible.value=false;
   emit('submit',body);
 }
 </script>
 
 <template>
   <el-form label-position="top" class="application-form" :disabled="saving">
-    <div class="final-reviewer"><span>填写结项报告</span><span class="flow-arrow">→</span><span>部门审核</span><span class="flow-arrow">→</span><strong>管理负责人 · {{ preview.approverName || '待配置' }}</strong></div>
+    <div class="final-reviewer"><span>填写结项报告</span><span class="flow-arrow">→</span><span>部门审核</span><span class="flow-arrow">→</span><strong>总经理 · {{ preview.approverName || '待配置' }}</strong></div>
     <section class="form-section">
     <header class="section-heading"><span class="section-number">01</span><div><h3>立项依据</h3></div></header>
     <el-form-item>
@@ -114,10 +130,16 @@ async function submit(){
     <ClosureScopeFields v-if="scope" v-model="decisions" :scope="scope" :no-charter="noCharter" :final-approver-id="Number(preview.approverId)" :final-approver-name="preview.approverName" :suggestions="noCharter?undefined:analysis?.result?.decisions" @refresh="refreshScope" />
     </section>
     <el-alert v-if="preview.previous" :closable="false" type="info" title="重新提交将按当前审核规则重新审核，原审核记录继续保留。" />
-    <div class="form-actions"><el-button @click="emit('cancel')">取消</el-button><el-button :loading="savingDraft" :disabled="uploading||!scope" @click="saveDraft">保存草稿</el-button><el-button type="primary" :loading="saving" :disabled="uploading || savingDraft || !preview.ready || !!preview.missingWeeklyReports?.length || !preview.approverId" @click="submit">提交结项审核</el-button></div>
+    <div class="form-actions"><el-button @click="emit('cancel')">取消</el-button><el-button :loading="savingDraft" :disabled="uploading||!scope||reportLoading" @click="saveDraft">保存草稿</el-button><el-button type="primary" :loading="saving||reportLoading" :disabled="uploading || savingDraft || !preview.ready || !!preview.missingWeeklyReports?.length || !preview.approverId" @click="submit">预览结项报告</el-button></div>
+    <el-dialog v-model="reportVisible" title="结项报告预览" width="min(1280px, 96vw)" top="3vh" append-to-body destroy-on-close :close-on-click-modal="false" :close-on-press-escape="!confirming" :show-close="!confirming">
+      <p class="helper">请核对报告内容，确认后再提交审核。当前尚未发起结项申请；审批记录将在后续流程中补充。</p>
+      <ClosureReport v-if="reportPreview" class="application-report-preview" :request="reportPreview" />
+      <template #footer><el-button :disabled="confirming||saving" @click="reportVisible=false">返回修改</el-button><el-button type="primary" :loading="confirming||saving" @click="confirmReport">确认并提交审核</el-button></template>
+    </el-dialog>
   </el-form>
 </template>
 
 <style scoped>
+.application-report-preview :deep(.report-frame){height:60vh;min-height:280px}
 .application-form{margin-top:16px}.final-reviewer{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:14px;padding:10px 0;background:transparent;border-radius:0;color:var(--text-2);font-size:13px;margin-bottom:20px}.final-reviewer strong{color:var(--primary,#247b70)}.flow-arrow{opacity:.45}.form-section{padding:24px;margin-bottom:30px;border:2px solid var(--el-border-color-darker,#aebbb5);border-radius:12px;background:var(--bg-card,#fff);box-shadow:0 2px 6px rgb(20 40 32 / 5%)}.section-heading{display:flex;align-items:center;gap:12px;margin-bottom:24px;padding-bottom:18px;border-bottom:1px solid var(--el-border-color,#cdd5d2)}.section-number{display:grid;place-items:center;width:36px;height:36px;flex-shrink:0;background:var(--primary-light,#edf5f2);color:var(--primary,#247b70);border-radius:10px;font-size:13px;font-weight:700;font-variant-numeric:tabular-nums}.section-heading h3{margin:0;font-size:17px;color:var(--text-1)}.section-heading p{margin:4px 0 0;color:var(--text-2);font-size:12px}.section-heading .el-tag{margin-left:auto}.context-fields{display:block}.charter-field{width:100%}.file-picker{position:relative;display:flex;flex-direction:row;align-items:center;justify-content:flex-start;flex-wrap:wrap;gap:10px;padding:12px 16px;border:1px solid var(--border,#e3e9e7);background:var(--bg-card,#fff);border-radius:10px;cursor:pointer;margin:8px 0 12px;color:var(--primary,#247b70)}.file-picker strong{font-size:14px}.file-picker>span{margin-left:auto}.uploaded-file{border:1px solid var(--border,#e3e9e7)}.file-picker>span{font-size:12px;color:var(--text-2)}.file-picker input{position:absolute;width:1px;height:1px;opacity:0}.file-picker:focus-within{outline:2px solid var(--primary,#247b70);outline-offset:3px}.helper{color:var(--text-2);font-size:12px;line-height:1.6;margin:7px 0}.uploaded-file{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;background:var(--bg-base,#f7f9f8);margin:6px 0;font-size:13px}.uploaded-file>span{flex:1;min-width:0;overflow-wrap:anywhere}.uploaded-file>.el-icon{color:var(--primary,#247b70);flex-shrink:0}.form-actions{position:sticky;bottom:-20px;padding:16px 0 8px;background:var(--bg-card,#fff);display:flex;justify-content:flex-end;gap:10px;border-top:1px solid var(--border);margin-top:16px;z-index:2}.form-section :deep(.el-form-item:last-child){margin-bottom:0}.form-section :deep(.el-textarea__inner){line-height:1.8;padding:12px 14px 28px;font-size:14px}.form-section :deep(.el-form-item__label){font-size:14px}@media(max-width:700px){.form-section{padding:16px}.context-fields{grid-template-columns:1fr;gap:0}.section-heading .el-tag{display:none}.final-reviewer{gap:8px;font-size:12px}.file-picker>span{text-align:center}}
 </style>

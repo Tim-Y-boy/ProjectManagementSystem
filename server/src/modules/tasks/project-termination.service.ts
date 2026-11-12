@@ -57,8 +57,8 @@ export class ProjectTerminationService {
       if (!/^\d+$/.test(override) || !Number.isSafeInteger(Number(override)) || !valid(override)) throw new BadRequestException('配置的终审人不是有效业务人员');
       finalId = Number(override);
     } else {
-      const candidates = [...new Set<number>(departments.filter(d => d.name === '管理办公室' && businessIds.has(String(d.id)) && valid(d.headUserId)).map(d => Number(d.headUserId)))];
-      if (candidates.length !== 1) throw new BadRequestException('请配置唯一有效的业务组织管理办公室终审负责人');
+      const candidates = [...new Set<number>(departments.filter(d => d.name === '总经办' && businessIds.has(String(d.id)) && valid(d.headUserId)).map(d => Number(d.headUserId)))];
+      if (candidates.length !== 1) throw new BadRequestException('请配置唯一有效的业务组织总经办终审负责人');
       finalId = candidates[0];
     }
     if (finalId === Number(requesterId)) throw new BadRequestException('申请人不能审批自己的终止申请，请配置独立终审人');

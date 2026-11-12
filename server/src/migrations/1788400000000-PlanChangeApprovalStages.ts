@@ -1,6 +1,6 @@
 import { MigrationInterface, QueryRunner } from "typeorm";
 
-// 计划变更改为两级审批链（执行人发起 → 项目负责人 → 管理办公室负责人终审；负责人/管理角色发起 → 管理办公室）
+// 计划变更改为两级审批链（执行人发起 → 项目负责人 → 总经办负责人终审；负责人/管理角色发起 → 总经办）
 // 旧数据 stage 默认 'final'、final_approver_id 为空 → 仍走"存量照旧"单级逻辑。
 export class PlanChangeApprovalStages1788400000000 implements MigrationInterface {
     name = 'PlanChangeApprovalStages1788400000000'

@@ -2,16 +2,18 @@
 
 核对日期：2026-10-27。描述当前工作区代码（含未提交修改），不作为线上部署或测试通过证明。
 
-业务流程、智能解析、部门规则、历史兼容、报告模板与 KPI 边界统一维护于 [结项与报备](../../../../docs/21-项目结项推送人事部门（奖惩报备）方案.md)，权限见 [权限模型](../../../../docs/03-权限模型.md)。新申请 workflow.version=3，历史 version=2 保留自选审核及转交，无 workflow 保持旧单级审批。
+业务流程、智能解析、部门规则、历史兼容、报告模板与 KPI 边界统一维护于 [结项与报备](../../../../docs/15-项目结项推送人力资源部（奖惩报备）方案.md)，权限见 [权限模型](../../../../docs/02-权限模型.md)。新申请 workflow.version=3，历史 version=2 保留自选审核及转交，无 workflow 保持旧单级审批。
 
 ## 首次上线与配置核对
 
 1. 备份数据库与 uploads，按部署说明安装锁定依赖并构建；启动时执行未应用迁移，包含 AddClosureIntelligence。
 2. 在“结项审核规则”核对部门映射及负责人。迁移仅匹配唯一同名部门，不创建部门或指定人员；HR 不可停用或改为条件审核。
 3. 核对 LLM 配置、解析失败手工通道、提交人跳过自审与共同负责人规则；规则或文件变化后重新核实范围。
-4. 使用脱敏 PDF/DOCX 验证背景和目标辅助填写、实际成果保留、待确认阻止提交、草稿恢复、审核清单和管理负责人终审。真实模型准确率与飞书触达单独验收。
+4. 使用脱敏 PDF/DOCX 验证背景和目标辅助填写、实际成果保留、待确认阻止提交、草稿恢复、审核清单和总经理终审。真实模型准确率与飞书触达单独验收。
 
 ## 数据与事务
+
+提交前报告预览：`POST /closures/projects/:id/report-preview`，请求体与提交接口相同，返回 `{ reportHtml, previewOnly: true }`。与提交共用项目锁、权限和业务校验，在形成报告快照后直接返回 HTML，不写入申请、不冻结项目、不清理草稿、不发送通知。前端支持返回修改；确认报告及审核范围后再调用提交接口，重新校验当前数据。预览不代表已提交或已审批。
 
 迁移 1789603200000-AddProjectClosures.ts 增加 projects.closure_state、project_closures、closure_notices、project_delay_records、closure_access_logs。
 
@@ -29,16 +31,16 @@
 
 | 配置 | 用途 |
 |---|---|
-| PLAN_FINAL_APPROVER_USER_ID | 可选，本环境启用的管理办公室审批人本地 ID |
-| PROJECT_GM_DEPT_NAME | 未指定 ID 时解析部门负责人，默认管理办公室 |
+| PLAN_FINAL_APPROVER_USER_ID | 可选，本环境启用的总经办审批人本地 ID |
+| PROJECT_GM_DEPT_NAME | 未指定 ID 时解析部门负责人，默认总经办 |
 | PROJECT_HR_NOTIFY_USER_ID | 可选，本环境 HR 收件人本地 ID |
-| PROJECT_HR_DEPT_NAME | 未指定 HR ID 时解析部门负责人，默认人事部门 |
+| PROJECT_HR_DEPT_NAME | 未指定 HR ID 时解析部门负责人，默认人力资源部 |
 | WEB_FRONT_URL | 用户可访问根地址；兼容 APP_PUBLIC_URL、FRONTEND_URL |
 | FEISHU_NOTIFY_DISABLED | true 禁止真实通知 |
 | FEISHU_GROUP_NOTIFY_DISABLED | true 只禁止真实群通知 |
 | FEISHU_NOTIFY_REDIRECT_USER_ID | 个人通知测试转发，不能转移审批/知晓权限 |
 
-不在文档中指定真实测试账号或固定人员 ID。修改环境配置需重启；历史申请已固定的审批人不随配置变更。管理办公室解析不到唯一启用人时阻止申请/补填标记；HR 缺失不阻止结项，待配置后补发。
+不在文档中指定真实测试账号或固定人员 ID。修改环境配置需重启；历史申请已固定的审批人不随配置变更。总经办解析不到唯一启用人时阻止申请/补填标记；HR 缺失不阻止结项，待配置后补发。
 
 ## 通知与访问
 
@@ -46,7 +48,7 @@ closure_notices 按事件键和收件人去重；每两分钟扫描投递，失�
 
 审核完成后的原卡片状态回写独立重试，失败不回滚业务审批。详见 [飞书通知](../../../../docs/05-飞书对接.md)。
 
-报告读取允许对应项目负责人、指定审批/通知接收人、当前管理办公室和 HR 负责人、admin/leader 及有效 HR 阅览授权。确认只允许对应收件人。导出和附件下载验证权限并记录 closure_access_logs。HR 授权不赋予修改项目、审批或代确认权限。
+报告读取允许对应项目负责人、指定审批/通知接收人、当前总经办和 HR 负责人、admin/leader 及有效 HR 阅览授权。确认只允许对应收件人。导出和附件下载验证权限并记录 closure_access_logs。HR 授权不赋予修改项目、审批或代确认权限。
 
 ## API
 
@@ -64,8 +66,8 @@ closure_notices 按事件键和收件人去重；每两分钟扫描投递，失�
 | POST | /projects/:id/charters | admin/项目负责人上传立项书，multipart file；单份非空且不超过 50 MB，冻结项目不可上传 |
 | GET | /:id/charters/:fileId/download | 经申请／报告读取授权下载该快照中的立项书 |
 | GET | /:id | 申请/报告详情，当前知晓状态独立附加 |
-| POST | /:id/approve | 当前待审核人通过，comment 必填，version=3 还需 checklists；全员通过后仅指定管理负责人可终审，终审意见可选 |
-| POST | /:id/reject | 当前待审核人或终审阶段的指定管理负责人退回，comment 必填 |
+| POST | /:id/approve | 当前待审核人通过，comment 必填，version=3 还需 checklists；全员通过后仅指定总经理可终审，终审意见可选 |
+| POST | /:id/reject | 当前待审核人或终审阶段的指定总经理退回，comment 必填 |
 | POST | /:id/transfer | 仅历史 version=2 当前待审核人转交；userId、reason 必填；version=3 拒绝转交 |
 | POST | /:id/withdraw | 申请人撤回待审单，reason 必填 |
 | POST | /:id/reopen | 当前项目负责人申请重开，reason 必填 |
@@ -106,7 +108,7 @@ npm.cmd run build
 
 数据库集成测试只能运行于本地隔离 schema，不能改为线上业务库。自动测试、真实卡片验证、浏览器视觉验收分别记录；本次文档核对不代表重新完成这些运行验证，也不沿用旧版本固定的测试通过数。
 
-发布以 [部署说明](../../../../docs/08-部署与运维方案.md) 为准，保留服务器 .env、数据库及上传文件备份。生产镜像启动自动执行编译迁移，不在缺开发依赖的运行容器中执行 ts-node CLI。
+发布以 [部署说明](../../../../docs/06-部署与运维方案.md) 为准，保留服务器 .env、数据库及上传文件备份。生产镜像启动自动执行编译迁移，不在缺开发依赖的运行容器中执行 ts-node CLI。
 
 
 解析身份兼容迁移为 1801100000000-AddClosureAnalysisScopeIdentity.ts，部署时与原解析迁移一起核对。部门负责人自审跳过只作用于实际提交人，不能用项目负责人的整体身份排除其他共同负责人。HR 延期日报代码见 project-delay-digest.ts，工作日报在 tasks 模块，两者不是同一个队列。

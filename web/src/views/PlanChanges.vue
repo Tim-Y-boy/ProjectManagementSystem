@@ -96,13 +96,13 @@ const canApprove = (c: any) => {
   }
   // owner 级：任一负责人可审（与后端一致）
   if (c.stage === 'owner') return meIsOwner(c);
-  // 终审级：单上管理办公室负责人(刘维浩)，或管理员；不放开给其它领导
+  // 终审级：单上总经办负责人(刘维浩)，或管理员；不放开给其它领导
   return auth.has('admin') || String(c.finalApproverId) === String(meId.value);
 };
-// 待审阶段的展示文案：负责人级 / 管理办公室终审级
+// 待审阶段的展示文案：负责人级 / 总经办终审级
 const pendingStatus = (c: any) => {
   if (c.status !== 'pending') return STATUS_META[c.status]?.label || c.status;
-  if (c.finalApproverId != null) return c.stage === 'owner' ? '待项目负责人' : '待管理办公室终审';
+  if (c.finalApproverId != null) return c.stage === 'owner' ? '待项目负责人' : '待总经办终审';
   return '待审批';
 };
 // 审批轨迹：谁通过了/谁在等/谁退回/谁未到该级
@@ -134,10 +134,10 @@ function approvalSteps(c: any) {
     } else if (c.status === 'rejected' && c.rejectedStage === 'final') {
       state = 'rejected'; byId = c.approverId ?? null; at = c.reviewedAt ?? null; comment = c.approverComment ?? null;
     } else if (ended) {
-      // 前面级别已退回或申请人已撤销：管理办公室这一级实际不会发生
+      // 前面级别已退回或申请人已撤销：总经办这一级实际不会发生
       state = 'skipped';
     }
-    steps.push({ label: '管理办公室负责人', state, byId, at, comment });
+    steps.push({ label: '总经办负责人', state, byId, at, comment });
   }
   return steps;
 }

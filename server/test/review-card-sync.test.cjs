@@ -63,7 +63,7 @@ test('cards without message ids are never sent as replacements',async()=>network
 test('weekly amendments patch original cards with exact request result and keep pending cards unchanged',async()=>network(async patches=>{
   for(const status of ['pending','approved','rejected']) {
     const before=patches.length;
-    const f=fixture({type:'weekly_amendment_review',planChangeId:null},{status,reviewed_at:new Date(),reviewer_name:'管理办公室',path:'/daily-report?tab=weekly&projectId=9&weekStart=2026-11-02'});
+    const f=fixture({type:'weekly_amendment_review',planChangeId:null},{status,reviewed_at:new Date(),reviewer_name:'总经办',path:'/daily-report?tab=weekly&projectId=9&weekStart=2026-11-02'});
     f.row.response.reviewRef={noticeId:55};
     await f.service.syncReviewCards();
     assert.equal(f.queries[0][1][1],55);

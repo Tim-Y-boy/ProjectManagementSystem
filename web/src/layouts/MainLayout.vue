@@ -64,7 +64,7 @@ function roleLabel(r: string) {
     <el-aside width="var(--sidebar-w)" class="sidebar">
       <div class="logo">
         <div class="logo-mark">
-          <img src="/project-logo.svg" alt="Project Management" />
+          <img src="/project-logo.png" alt="Project Management" />
         </div>
         <div class="logo-text">
           <span class="logo-title">项目协作平台</span>

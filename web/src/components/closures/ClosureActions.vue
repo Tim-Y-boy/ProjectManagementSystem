@@ -10,7 +10,7 @@ const labels:Record<string,string>={pending:'待审批',approved:'已通过',rej
 async function action(kind:'withdraw'|'reopen'|'approve'|'reject',id:number) {
   try {
     const titles={withdraw:'撤回结项申请',reopen:'申请重开纠错',approve:'通过重开纠错',reject:'退回重开申请'};
-    const {value}=await ElMessageBox.prompt(kind==='reopen'||kind==='approve'?'通过管理办公室审批后恢复编辑，原结项报告标记失效并保留，HR将收到纠正通知。请填写原因。':'请填写原因或审核意见。',titles[kind],{inputType:'textarea',inputValidator:v=>!!v?.trim()&&v.trim().length<=4000||'请填写1～4000字'});
+    const {value}=await ElMessageBox.prompt(kind==='reopen'||kind==='approve'?'通过总经办审批后恢复编辑，原结项报告标记失效并保留，HR将收到纠正通知。请填写原因。':'请填写原因或审核意见。',titles[kind],{inputType:'textarea',inputValidator:v=>!!v?.trim()&&v.trim().length<=4000||'请填写1～4000字'});
     busy.value=true;
     if(kind==='withdraw') await closuresApi.withdraw(id,value);
     else if(kind==='reopen') await closuresApi.reopen(id,value);

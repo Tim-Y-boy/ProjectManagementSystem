@@ -20,7 +20,7 @@ export function pendingClosureApproverName(workflow: ClosureWorkflow | undefined
   if (workflow && (workflow.stage !== 'final' || !workflow.reviews.every(r => r.status === 'approved'))) {
     return '前置审核人员';
   }
-  return finalName ? `管理负责人·${finalName}` : '管理负责人';
+  return finalName ? `总经理·${finalName}` : '总经理';
 }
 const ids = (v: any): number[] => {
   if (!Array.isArray(v) || v.some(x => !Number.isSafeInteger(Number(x)) || Number(x) <= 0)) throw new BadRequestException('人员或文件编号无效');
@@ -46,7 +46,7 @@ export function createWorkflow(rawIds: any, people: any[], gm: number, requester
   const selected = ids(rawIds);
   if (!selected.length || selected.length > 30) throw new BadRequestException('至少选择一名审核人，最多30人');
   if (new Set(selected).size !== selected.length) throw new BadRequestException('审核人不能重复');
-  if (selected.includes(Number(gm))) throw new BadRequestException('管理负责人是最后一级审核人，无需重复添加');
+  if (selected.includes(Number(gm))) throw new BadRequestException('总经理是最后一级审核人，无需重复添加');
   if (selected.includes(Number(requester))) throw new BadRequestException('申请人不能审核自己的结项申请');
   if (selected.some(id => !people.some(p => Number(p.id) === id))) throw new BadRequestException('请选择有效且启用的审核人');
   const prior: ClosureWorkflow | undefined = previous?.snapshot?.workflow;
@@ -103,7 +103,7 @@ export function transferWorkflow(w: ClosureWorkflow, from: number, to: number, p
   if(w.version===3)throw new BadRequestException('本申请由部门负责人审核，不支持任意转交；请退回后核对负责人配置');
   const r = w.reviews.find(r => Number(r.userId) === Number(from) && r.status === 'pending');
   if (w.stage !== 'reviewers' || !r) throw new ForbiddenException('仅当前待审核人可以转交');
-  if (Number(to) === Number(gm)) throw new BadRequestException('管理负责人为终审人，不能转交给管理负责人');
+  if (Number(to) === Number(gm)) throw new BadRequestException('总经理为终审人，不能转交给总经理');
   if (Number(to) === Number(requester)) throw new BadRequestException('不能转交给申请人');
   if (w.reviews.some(r => Number(r.userId) === Number(to))) throw new BadRequestException('该人员已在审核名单中');
   const target = people.find(p => Number(p.id) === Number(to));

@@ -157,7 +157,7 @@ export class ProjectWeeklyReportsService {
       const row = (await this.rows(user,new Date(),m)).find((r: any) => r.projectId === projectId && r.weekStart === week);
       if (!row?.canRequestAmendment) throw new ForbiddenException('仅项目负责人可申请修改已提交周报；结项审批中或已结项不可修改');
       const approver = await this.closures.recipient('gm',m);
-      if (!approver) throw new BadRequestException('未配置有效的管理办公室负责人');
+      if (!approver) throw new BadRequestException('未配置有效的总经办负责人');
       const [report] = await m.query('SELECT * FROM project_weekly_reports WHERE project_id=$1 AND week_start=$2 FOR UPDATE', [projectId,week]);
       if (body.version !== report.version) throw new ConflictException('周报已变化，请刷新后重试');
       if ((await m.query("SELECT 1 FROM project_weekly_report_amendments WHERE report_id=$1 AND status='pending'", [report.id])).length) throw new ConflictException('已有修改申请待审批');
@@ -187,7 +187,7 @@ export class ProjectWeeklyReportsService {
     if (comment.length > 2000 || (!body.approve && !comment)) throw new BadRequestException('退回时请填写原因，最多2000字');
     const target = await this.db.transaction(async m => {
       await m.query('SELECT pg_advisory_xact_lock(781260,30)');
-      if (Number(await this.closures.recipient('gm',m)) !== Number(user.userId)) throw new ForbiddenException('仅管理办公室负责人可审批');
+      if (Number(await this.closures.recipient('gm',m)) !== Number(user.userId)) throw new ForbiddenException('仅总经办负责人可审批');
       const [request] = await m.query(`SELECT a.*,r.project_id,to_char(r.week_start,'YYYY-MM-DD') AS week
         FROM project_weekly_report_amendments a JOIN project_weekly_reports r ON r.id=a.report_id WHERE a.id=$1 FOR UPDATE OF a`, [id]);
       if (!request) throw new NotFoundException('修改申请不存在');

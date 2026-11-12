@@ -19,7 +19,7 @@ export const TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
   todo: ['doing', 'cancelled', 'pending_confirm'],
   doing: ['pending_accept', 'cancelled', 'todo'],
   pending_accept: ['done', 'doing', 'cancelled'],
-  done: ['doing'], // 仅管理员/管理办公室负责人可退回，具体权限由服务层校验
+  done: ['doing'], // 仅管理员/总经办负责人可退回，具体权限由服务层校验
   rejected: ['todo', 'cancelled'],
   cancelled: [],
 };

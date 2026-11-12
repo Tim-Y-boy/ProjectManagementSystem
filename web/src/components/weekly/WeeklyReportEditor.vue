@@ -117,7 +117,7 @@ async function submitReport() {
     return;
   }
   try {
-    await ElMessageBox.confirm('提交后周报将锁定；如需修改，须申请并经管理办公室负责人审批通过。请确认内容完整、准确。', '确认提交周报', { confirmButtonText: '确认提交', cancelButtonText: '继续填写', type: 'warning' });
+    await ElMessageBox.confirm('提交后周报将锁定；如需修改，须申请并经总经办负责人审批通过。请确认内容完整、准确。', '确认提交周报', { confirmButtonText: '确认提交', cancelButtonText: '继续填写', type: 'warning' });
   } catch { return; }
   submitting.value = true;
   try {
@@ -156,7 +156,7 @@ async function requestAmendment() {
     const value = await projectWeeklyReportsApi.requestAmendment({...form.value,projectId:props.detail.projectId,weekStart:props.detail.weekStart,version:localVersion.value,reason:amendmentReason.value,draftVersion:localAmendmentVersion.value});
     amending.value=false; form.value=readForm(value); baseline.value={...form.value};
     emit('saved',value); refresh.markProjectChanged(); amendmentDialog.value=false;
-    ElMessage.success('修改申请已发送至管理办公室负责人待办');
+    ElMessage.success('修改申请已发送至总经办负责人待办');
   } catch(e:any) { ElMessage.error(e?.message || '申请失败，请重试'); }
   finally { amendmentBusy.value=false; submitting.value=false; }
 }
@@ -213,12 +213,12 @@ async function reviewAmendment(approve: boolean) {
           </template>
         </div>
         <el-button v-if="!amending && detail.canRequestAmendment && !auth.readOnly" class="amendment-button" @click="startAmendment">{{ detail.amendment && ['draft','rejected'].includes(detail.amendment.status) ? '继续修改周报' : '修改周报' }}</el-button>
-        <p v-if="editable && !amending" class="submit-hint">请在<strong>下周一前提交本周周报</strong>，提交后若需要修改需<strong>管理负责人审批</strong>。</p>
+        <p v-if="editable && !amending" class="submit-hint">请在<strong>下周一前提交本周周报</strong>，提交后若需要修改需<strong>总经理审批</strong>。</p>
         <div class="actions" :class="{ 'actions--readonly': !editable }"><template v-if="editable"><el-button type="primary" :loading="submitting" @click="submitReport">{{ amending ? '提交修改审批' : '提交周报' }}</el-button><el-button v-if="amending" :disabled="submitting" @click="viewOfficial">查看正式周报</el-button><span role="status">{{ saving ? '正在自动保存…' : dirty ? '有未保存内容' : savedAt || (detail.status === 'draft' ? '草稿已保存' : '') }}</span><el-button v-if="error" :loading="saving" @click="save">重试保存</el-button></template></div>
       </section>
     </div>
     <el-dialog v-model="amendmentDialog" title="提交周报修改审批" width="min(900px, 92vw)" append-to-body :close-on-click-modal="false" :close-on-press-escape="!amendmentBusy" :show-close="!amendmentBusy">
-      <p>请确认以下修改；管理办公室负责人审批通过后生效。</p>
+      <p>请确认以下修改；总经办负责人审批通过后生效。</p>
       <WeeklyChangeComparison :original="detail" :proposed="form" />
       <el-form label-position="top">
         <el-form-item label="修改原因" required>

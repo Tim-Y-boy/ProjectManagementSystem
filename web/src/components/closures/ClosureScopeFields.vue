@@ -19,7 +19,7 @@ function update(id:number,value:any){const previous=props.modelValue.find(d=>d.r
 </script>
 <template>
  <section class="scope-fields">
-  <header class="scope-toolbar"><div><strong>已选 {{ selectedRules.length }} 个审核部门</strong><p>必审与会审并行，全部通过后进入管理负责人终审。</p></div><el-button link type="primary" @click="emit('refresh')">刷新配置</el-button></header>
+  <header class="scope-toolbar"><div><strong>已选 {{ selectedRules.length }} 个审核部门</strong><p>必审与会审并行，全部通过后进入总经理终审。</p></div><el-button link type="primary" @click="emit('refresh')">刷新配置</el-button></header>
   <el-alert v-if="scope?.error" :title="scope.error" type="error" :closable="false" />
   <el-alert v-if="!scope?.projectDeptId" type="error" title="项目尚未设置所属部门，请先补齐" :closable="false" />
   <ol class="approval-flow">
@@ -51,10 +51,10 @@ function update(id:number,value:any){const previous=props.modelValue.find(d=>d.r
     <span class="stage-dot" aria-hidden="true">3</span>
     <div class="stage-heading"><h4>终审</h4><span>全部前置审核通过后自动进入</span></div>
     <div class="table-scroll">
-     <table class="scope-table"><caption class="sr-only">管理负责人终审</caption>
+     <table class="scope-table"><caption class="sr-only">总经理终审</caption>
       <colgroup><col class="col-department"><col class="col-reviewer"><col class="col-decision"><col class="col-basis"><col class="col-checklist"></colgroup>
       <thead><tr><th scope="col">审核部门</th><th scope="col">审核人</th><th scope="col">是否审核</th><th scope="col">判定依据</th><th scope="col">审核清单</th></tr></thead>
-      <tbody><tr><td><strong>管理负责人终审</strong></td><td><UserAvatar :name="finalApproverName||'终审人待配置'" :avatar-url="finalHead?.head_avatar_url||null" :size="24" show-name /></td><td><el-tag type="success">必须审核</el-tag></td><td><p class="basis-text">系统指定的最后一级审核</p></td><td><span class="muted">综合结项报告与部门意见</span></td></tr></tbody>
+      <tbody><tr><td><strong>总经理终审</strong></td><td><UserAvatar :name="finalApproverName||'终审人待配置'" :avatar-url="finalHead?.head_avatar_url||null" :size="24" show-name /></td><td><el-tag type="success">必须审核</el-tag></td><td><p class="basis-text">系统指定的最后一级审核</p></td><td><span class="muted">综合结项报告与部门意见</span></td></tr></tbody>
      </table>
     </div>
    </li>

@@ -5,7 +5,7 @@ const { TasksService } = require('../src/modules/tasks/tasks.service');
 const admin = { userId: 1, roles: ['admin'], deptId: null, managedDeptIds: [] };
 
 function fixture({ locked = true, owners = ['16', '30'], ownerId = '16' } = {}) {
-  const project = { id: 18, name: '示例工作区', planLocked: locked, ownerId, deptId: 4, category: '改造', endAt: null };
+  const project = { id: 18, name: '包装车间', planLocked: locked, ownerId, deptId: 4, category: '改造', endAt: null };
   const saves = [];
   const ownerWrites = [];
   const service = Object.create(TasksService.prototype);
@@ -21,7 +21,7 @@ test('locked project blocks replacing, adding, removing and reordering owners ev
   for (const ownerIds of [[71], [16, 30, 71], [16], [], [30, 16]]) {
     const f = fixture();
     await assert.rejects(f.service.updateProject(admin, 18, { name: '不应保存', ownerIds }), /不允许修改项目负责人/);
-    assert.equal(f.project.name, '示例工作区');
+    assert.equal(f.project.name, '包装车间');
     assert.equal(f.saves.length, 0);
     assert.equal(f.ownerWrites.length, 0);
   }

@@ -53,9 +53,9 @@ defineExpose({ refresh: load });
         <div class="inbox-title-row"><h4>{{ p.name }}</h4><el-tag size="small" :type="p.state === 'pending' ? 'info' : 'warning'">{{ p.state === 'pending' ? '结项审批中' : '待申请结项' }}</el-tag></div>
         <div class="inbox-meta"><span>全部验收完成 <b>{{ p.completedDate }}</b></span><span>计划截止 <b>{{ p.plannedEnd || '未设置' }}</b></span></div>
         <p v-if="p.state !== 'pending'" class="inbox-waiting" :class="{ 'is-warning': p.waitingDays >= 3 }">完成后已等待 <strong>{{ p.waitingDays }}</strong> 天，请及时申请结项</p>
-        <p v-else class="inbox-description">待 {{ p.approverName || '管理办公室负责人' }} 审核</p>
+        <p v-else class="inbox-description">待 {{ p.approverName || '总经办负责人' }} 审核</p>
       </div>
-      <div class="inbox-actions"><el-button type="primary" :plain="p.state === 'pending'" @click="router.push(p.state === 'pending' ? `/closures?request=${p.requestId}` : `/closures?projectId=${p.projectId}`)">{{ p.state === 'pending' ? '查看申请' : '申请结项' }}</el-button></div>
+      <div class="inbox-actions"><el-button type="primary" plain :class="{ 'closure-apply': p.state !== 'pending' }" @click="router.push(p.state === 'pending' ? `/closures?request=${p.requestId}` : `/closures?projectId=${p.projectId}`)">{{ p.state === 'pending' ? '查看申请' : '申请结项' }}</el-button></div>
     </article>
     <article v-for="row in visible" :id="`closure-notice-${row.id}`" :key="row.id" class="inbox-item" :class="{ focused: String(row.id) === String(route.query.notice) }">
       <div class="inbox-main">

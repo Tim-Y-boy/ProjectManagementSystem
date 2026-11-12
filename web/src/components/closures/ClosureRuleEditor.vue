@@ -43,7 +43,7 @@ function save(){
   <el-form-item label="判定边界" required><el-input v-model="form.boundary" type="textarea" :rows="3" maxlength="3000" placeholder="说明哪些情况涉及、哪些不涉及，AI 会据此分析" /></el-form-item>
   <el-form-item label="审核清单（每行一项）" required><el-input v-model="form.checklistText" type="textarea" :rows="7" placeholder="填写部门负责人需要核验的事项" /></el-form-item>
   <el-form-item label="启用"><el-switch v-model="form.enabled" :disabled="form.id===3" /></el-form-item>
-  <p class="hint">审核人使用部门负责人。本部门负责人必审，仅跳过提交人本人审核，包括 HR；管理负责人终审保留。</p>
+  <p class="hint">审核人使用部门负责人。本部门负责人必审，仅跳过提交人本人审核，包括 HR；总经理终审保留。</p>
   <div class="actions"><el-button @click="emit('cancel')">取消</el-button><el-button type="primary" :loading="saving" @click="save">保存并生效</el-button></div>
  </el-form>
 </template>

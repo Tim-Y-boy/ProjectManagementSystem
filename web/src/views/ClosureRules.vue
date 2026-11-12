@@ -17,7 +17,7 @@ onMounted(load);
 <template>
  <section class="rules-page" v-loading="loading">
   <header><div><h2>结项审批规则配置</h2><p>保存后立即用于新的分析和申请；已提交的审批记录保持不变。</p></div><div><el-button @click="load">刷新</el-button><el-button v-if="!auth.readOnly" type="primary" :disabled="!data.version" @click="edit(null)">新增审核部门</el-button></div></header>
-  <el-alert type="info" :closable="false" title="本部门负责人必须审核；仅跳过实际提交人本人的审核节点，HR 同样适用。参与部门由各自负责人审核，最后送管理负责人终审。" />
+  <el-alert type="info" :closable="false" title="本部门负责人必须审核；仅跳过实际提交人本人的审核节点，HR 同样适用。参与部门由各自负责人审核，最后送总经理终审。" />
   <p class="version">当前规则版本 {{ data.version }} · {{ data.rules.length }} 条</p>
   <el-table :data="data.rules" row-key="id" border stripe class="rules-table">
    <el-table-column label="部门 / 负责人" min-width="300"><template #default="{row}"><div class="department-cell"><strong>{{ row.departmentName }}</strong><span v-if="row.departmentId" class="reviewer-pill"><UserAvatar :name="department(row.departmentId)?.head_name||'待配置'" :avatar-url="department(row.departmentId)?.head_avatar_url||null" :size="22" show-name /></span><span v-else class="unmatched">尚未匹配系统部门</span></div></template></el-table-column>

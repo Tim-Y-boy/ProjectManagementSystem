@@ -25,6 +25,7 @@ export const closuresApi = {
   exportReport: (id: number) => http.get<{ filename: string; content: string }>(`/closures/${id}/export`),
   downloadAsset: (id: number, assetId: number) => request.get<any, Blob>(`/closures/${id}/assets/${assetId}/download`, { responseType: 'blob' }),
   preview: (id: number) => http.get<any>(`/closures/projects/${id}/preview`),
+  previewReport: (id: number, body: any) => http.post<{ reportHtml: string; previewOnly: boolean }>(`/closures/projects/${id}/report-preview`, body),
   submit: (id: number, body: any) => http.post<any>(`/closures/projects/${id}`, body),
   approve: (id: number, comment: string, checklists?:any[]) => http.post<any>(`/closures/${id}/approve`, { comment,checklists }),
   reject: (id: number, comment: string, checklists?:any[]) => http.post<any>(`/closures/${id}/reject`, { comment,checklists }),

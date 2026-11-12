@@ -9,14 +9,14 @@ function setup(file,props,userId=1){
  const c=mod.exports.default.setup(props,{expose:()=>{},emit:(...args)=>calls.push(args)});
  return {c,calls,warnings};
 }
-const candidates=[{id:1,name:'负责人'},{id:2,name:'管理负责人'},{id:3,name:'A'},{id:4,name:'B'}];
-const preview=()=>({project:{id:1},ready:true,approverId:2,approverName:'管理负责人',reviewerCandidates:candidates});
+const candidates=[{id:1,name:'负责人'},{id:2,name:'总经理'},{id:3,name:'A'},{id:4,name:'B'}];
+const preview=()=>({project:{id:1},ready:true,approverId:2,approverName:'总经理',reviewerCandidates:candidates});
 test('application validates narrative and charter alternative before emitting payload',()=>{
  const {c,calls,warnings}=setup('ClosureApplicationForm.vue',{preview:preview(),saving:false});
  c.submit();assert.equal(calls.length,0);assert.match(warnings[0],/背景/);
  Object.assign(c.form,{background:'背景',objective:'目标',outcome:'成果',reviewerIds:[3]});c.submit();assert.equal(calls.length,0);
  c.noCharter.value=true;c.form.noCharterReason='历史无书';c.submit();assert.equal(calls[0][0],'submit');assert.deepEqual(calls[0][1].charterFileIds,[]);
- assert.match(c.disabledReason({id:2}),/管理负责人/);assert.match(c.disabledReason({id:1}),/申请人/);
+ assert.match(c.disabledReason({id:2}),/总经理/);assert.match(c.disabledReason({id:1}),/申请人/);
 });
 test('retry retains original reviewer ids and restores uploaded charter metadata',()=>{
  const p=preview();p.previous={status:'rejected',snapshot:{application:{background:'旧背景',objective:'目标',outcome:'成果',charters:[{id:7,original_name:'old.pdf'}]},workflow:{reviews:[{userId:3,name:'A'}]}}};

@@ -68,14 +68,17 @@ test('reasonable supplement compares work date, including deadline itself', () =
 
 function workflow() {
   const f = { ...facts(), project: { id: 9, dept_id:1, name: '测试项目', status: 'active', closure_state: 'none', plan_locked: true }, tasks: [] };
-  const state = { row: null, events: [], updates: [], pendingChange: false };
+  const state = { writes: [], row: null, events: [], updates: [], pendingChange: false };
   const query = async (sql, p = []) => {
+    if (/^(INSERT|UPDATE|DELETE)/.test(sql)) state.writes.push(sql);
+    if (sql.startsWith('WITH eligible AS') || sql.startsWith('SELECT r.id,r.project_id,r.week_start')) return [];
+    if (sql.startsWith('SELECT status,termination_state FROM projects')) return [f.project];
     if (sql.includes('pg_try_advisory_xact_lock')) return [{ held: true }];
     if(sql.startsWith('SELECT version,data FROM closure_application_drafts')||sql.startsWith('DELETE FROM closure_application_drafts'))return [];
     if(sql.startsWith('SELECT version,rules'))return [{version:1,rules:[1,2].map(id=>({id,departmentId:id,departmentName:'部门'+id,enabled:true,mode:'required',checklist:['核验']}))}];
     if(sql.startsWith('SELECT d.id,d.name,d.head_user_id'))return [1,2].map(id=>({id,name:'部门'+id,head_user_id:40,head_name:'核验人',is_active:true}));
     if (sql.startsWith('SELECT id FROM plan_changes')) return state.pendingChange ? [{ id: 7 }] : [];
-    if (sql.startsWith('SELECT id,name FROM users WHERE is_active')) return [{id:30,name:'管理负责人'},{id:40,name:'核验人'}];
+    if (sql.startsWith('SELECT id,name FROM users WHERE is_active')) return [{id:30,name:'总经理'},{id:40,name:'核验人'}];
     if (sql.startsWith('SELECT id,name FROM users')) return [{ id: p[0], name: `用户${p[0]}` }];
     if (sql.startsWith('INSERT INTO project_closures')) {
       state.row = { id: 1, project_id: p[0], requester_id: p[1], approver_id: p[2], snapshot: structuredClone(p[3]), delay_reason: p[4], overdue_reason: p[5], status: 'pending', requested_at: new Date('2026-09-17T02:00Z') }; return [state.row];
@@ -103,6 +106,8 @@ function workflow() {
   s.enqueue = async (...args) => state.events.push(args.slice(1)); s.enqueueHr = async () => state.events.push(['hr']);
   const originalSubmit=s.submit.bind(s);
   s.submit=async(u,id,body)=>originalSubmit(u,id,{...body,scope:{...body.scope,identity:require('../src/modules/closures/closure-department-rules').scopeIdentity(1,u.userId,[16],await query('SELECT d.id,d.name,d.head_user_id')),heads:{1:40,2:40}}});
+  const originalPreview=s.previewReport.bind(s);
+  s.previewReport=async(u,id,body)=>originalPreview(u,id,{...body,scope:{...body.scope,identity:require('../src/modules/closures/closure-department-rules').scopeIdentity(1,u.userId,[16],await query('SELECT d.id,d.name,d.head_user_id')),heads:{1:40,2:40}}});
   return { s, f, state };
 }
 test('administrator can apply on behalf of the owner without bypassing review or changing ownership', async () => {
@@ -131,7 +136,7 @@ test('owner submission freezes, stays active until approval, duplicate submissio
 });
 test('pending plan change and missing reviewer prevent submission', async () => {
   const a = workflow(); a.state.pendingChange = true; await assert.rejects(a.s.submit(user(16), 9, {...application,delayReason:'出差' }), /计划变更/);
-  const b = workflow(); b.s.recipient = async () => null; await assert.rejects(b.s.submit(user(16), 9, {...application,delayReason:'出差' }), /管理办公室负责人/);
+  const b = workflow(); b.s.recipient = async () => null; await assert.rejects(b.s.submit(user(16), 9, {...application,delayReason:'出差' }), /总经办负责人/);
 });
 test('only assigned reviewer can approve, not owner or unrelated admin', async () => {
   const { s } = workflow(); await s.submit(user(16), 9, {...application,delayReason:'出差' });
@@ -240,4 +245,24 @@ test('service-layer editing and legacy restoration cannot bypass a closed projec
   const project = { id: 9, closureState: 'closed', status: 'archived', planLocked: false };
   s.projects = { findOne: async () => project, save: () => assert.fail('closed project must not save') };
   for (const action of [() => s.updateProject(user(1, ['admin']), 9, {}), () => s.deleteProject(user(1, ['admin']), 9), () => s.unarchiveProject(user(1, ['admin']), 9), () => s.assertPlanEditable(9), () => s.assertProjectPlanLocked(9)]) await assert.rejects(action, /结项/);
+});
+
+
+test('report preview renders application without writes, notifications or freezing; explicit submit starts workflow', async () => {
+ const {s,f,state}=workflow();
+ const result=await s.previewReport(user(16),9,application);
+ assert.equal(result.previewOnly,true);
+ assert.ok(result.reportHtml.includes(application.background));
+ assert.ok(result.reportHtml.includes(application.outcome));
+ assert.equal(state.row,null);assert.equal(f.project.closure_state,'none');
+ assert.deepEqual(state.writes,[]);assert.deepEqual(state.events,[]);
+ await s.submit(user(16),9,application);
+ assert.equal(state.row.status,'pending');assert.equal(f.project.closure_state,'pending');
+ assert.ok(state.events.length>0);
+});
+test('report preview rejects unauthorized, read-only and invalid applications without writes', async () => {
+ for(const [u,body] of [[user(99),application],[{...user(16),readOnly:true},application],[user(16),{...application,outcome:''}]]) {
+  const {s,state}=workflow();await assert.rejects(s.previewReport(u,9,body));
+  assert.deepEqual(state.writes,[]);assert.deepEqual(state.events,[]);
+ }
 });

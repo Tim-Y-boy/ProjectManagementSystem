@@ -58,3 +58,10 @@ Environment files, database contents, uploads, build output, dependencies, priva
 - Backend: project owner can submit with progress but cannot bypass the progress requirement
 - Backend: task result and confirmation cards identify the exact task, not just its project
 - Backend: Friday 16:00 Beijing; current week only, successful group delivery deduplicates
+
+## Incremental review — 2026-11-12
+
+- Added a pre-submission closure report preview. Preview uses the existing report renderer and validation, creates no application, freeze, draft deletion, or notification.
+- The pending task action uses the same breathing-light style as project management.
+- Sanitized source audit: 420 tracked source and test files; no findings. No organization-domain, known staff-name, or private-network matches were found in the sanitized checkout.
+- Backend and frontend production builds passed. Focused closure tests passed (31 backend workflow tests, 31 report tests, and 3 frontend preview tests).

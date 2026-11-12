@@ -132,7 +132,7 @@ watch(mode, () => { status.value = ''; search.value = ''; load(); });
       <el-table v-if="mode !== 'delays'" :data="visibleRows" border stripe @row-click="(r: any) => openRequest(Number(r.id))" class="clickable" empty-text="暂无符合筛选条件的记录">
         <el-table-column label="项目" min-width="210"><template #default="{row}"><span class="project-name">{{ row.snapshot.project.name }}</span></template></el-table-column>
         <el-table-column label="申请人" width="130" align="center"><template #default="{row}">{{ row.snapshot.requester?.name }}</template></el-table-column>
-        <el-table-column label="状态" width="150" align="center"><template #default="{row}"><el-tag :type="row.status === 'approved' ? 'success' : row.status === 'pending' ? 'warning' : row.status === 'rejected' ? 'danger' : 'info'" size="small">{{ row.status === 'pending' && row.snapshot.workflow?.stage === 'final' ? '待管理负责人终审' : labels[row.status] }}</el-tag></template></el-table-column>
+        <el-table-column label="状态" width="150" align="center"><template #default="{row}"><el-tag :type="row.status === 'approved' ? 'success' : row.status === 'pending' ? 'warning' : row.status === 'rejected' ? 'danger' : 'info'" size="small">{{ row.status === 'pending' && row.snapshot.workflow?.stage === 'final' ? '待总经理终审' : labels[row.status] }}</el-tag></template></el-table-column>
         <el-table-column label="申请时间（北京时间）" width="190"><template #default="{row}"><span class="date-meta">{{ formatBeijingTime(row.requested_at) }}</span></template></el-table-column>
         <el-table-column label="操作" width="120" align="center" fixed="right"><template #default="{row}"><el-button link type="primary" @click.stop="openRequest(Number(row.id))">查看{{ row.report ? '报告' : '申请' }}</el-button></template></el-table-column>
       </el-table>
@@ -144,7 +144,7 @@ watch(mode, () => { status.value = ''; search.value = ''; load(); });
         <h3 class="apply-project-title">{{ preview.project.name }}</h3>
         <el-alert v-if="preview.missingWeeklyReports?.length" :closable="false" type="warning" :title="`有 ${preview.missingWeeklyReports.length} 周周报未提交，请先补填并提交后再申请结项：${preview.missingWeeklyReports.map((row: any) => row.weekStart).join('、')}`" />
         <el-alert v-if="!preview.ready" :closable="false" type="warning" title="尚有未完成任务或缺少验收日期，暂不能申请结项。" />
-        <el-alert v-if="!preview.approverId" :closable="false" type="warning" title="请联系管理员配置管理负责人终审人。" />
+        <el-alert v-if="!preview.approverId" :closable="false" type="warning" title="请联系管理员配置总经理终审人。" />
         <ClosureApplicationForm :preview="preview" :saving="saving" @submit="submit" @cancel="applyVisible=false" />
       </template>
     </el-dialog>
