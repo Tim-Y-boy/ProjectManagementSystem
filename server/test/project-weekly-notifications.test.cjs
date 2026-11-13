@@ -71,17 +71,17 @@ test('Monday 09:00 may catch up an older closed week and the just-ended week', a
   assert.deepEqual(seen, [['2026-11-02', '2026-11-09'], null]);
 });
 
-test('reminders exclude submitted reports and separate one-hour deadline window from overdue work', async () => {
-  const base = { dueAt: '2026-11-09T09:00:00+08:00', ownerId: 12 };
+test('reminders exclude submitted reports and separate current-week Friday reminders from overdue work', async () => {
+  const base = { weekStart: '2026-11-09', dueAt: '2026-11-16T09:00:00+08:00', ownerId: 12 };
   const { service } = fixture([
     { ...base, projectId: 1, status: 'draft', overdue: false },
     { ...base, projectId: 2, status: 'submitted', overdue: false },
     { ...base, projectId: 3, status: 'missing', overdue: true },
   ]);
-  const now = new Date('2026-11-09T08:00:00+08:00');
+  const now = new Date('2026-11-13T16:30:00+08:00');
   assert.deepEqual((await service.reminderRows(now, true)).map(r => r.projectId), [1]);
   assert.deepEqual((await service.reminderRows(now)).map(r => r.projectId), [3]);
-  assert.equal((await service.reminderRows(new Date('2026-11-09T07:59:00+08:00'), true)).length, 0);
+  assert.equal((await service.reminderRows(new Date('2026-11-16T08:00:00+08:00'), true)).length, 0);
 });
 
 test('personal digest merges multiple projects, reuses successful-send idempotency and suppresses read-only recipients', async () => {
@@ -100,8 +100,8 @@ test('personal digest merges multiple projects, reuses successful-send idempoten
     feishuNotify: { isReadOnlyRecipient: async id => id === 2, hasSuccessfulSince: async (_, id) => successful.has(id),
       sendCard: async (type, id, card, fallback) => { sent.push({ type, id, card, fallback }); successful.add(id); return { success: true }; } },
   });
-  await service.notifyDailyDigests(undefined, '0900');
-  await service.notifyDailyDigests(undefined, '0900');
+  await service.notifyDailyDigests(undefined, '1630');
+  await service.notifyDailyDigests(undefined, '1630');
   assert.equal(sent.length, 1);
   assert.equal(sent[0].id, 1);
   assert.match(sent[0].fallback, /existing digest.*\n.*Alpha/s);

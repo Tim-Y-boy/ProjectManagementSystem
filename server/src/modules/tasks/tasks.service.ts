@@ -2956,7 +2956,8 @@ export class TasksService implements OnModuleInit {
     if (!targets.length) return { skipped: 'already_sent', today };
     const rows = await this.projectBriefRows();
     if (!rows.length) return { skipped: 'no_projects', today };
-    const closureReminders = (await this.closures.readyProjects()).map((p) => p.state === 'pending'
+    const closureProjects = await this.closures.readyProjects();
+    const closureReminders = closureProjects.map((p) => p.state === 'pending'
       ? `【结项审批中】${p.name}：全部任务已完成，待${p.approverName || '总经办负责人'}审批。`
       : `【待申请结项】${p.name}：${p.completedDate}全部验收完成，已等待${p.waitingDays}天，请${p.owners.map((o) => o.name).join('、') || '项目负责人'}申请结项。`);
     // 关注项：整段交给大模型自由写（thinking:disabled，快且稳）。失败回退结构化默认关注项。不阻断发送。
@@ -2978,7 +2979,7 @@ export class TasksService implements OnModuleInit {
       this.logger.warn(`简报图表不可用，发送文字卡片：${error instanceof Error ? error.message : String(error)}`);
     }
     // 先带 @ 发；失败时保留图片、去掉 @ 重发。
-    const withAt = this.buildGroupBriefPost(rows, today, true, narrative, closureReminders);
+    const withAt = this.buildGroupBriefPost(rows, today, true, narrative, closureReminders, closureProjects.map(p => p.mentionPeople || []));
     const results: Array<{ chatId: string; sent: boolean; degraded: boolean }> = [];
     for (const chatId of targets) {
       try {
@@ -2990,7 +2991,7 @@ export class TasksService implements OnModuleInit {
         this.logger.warn(
           `项目群简报带 @ 发送失败（可能含不在群成员），降级为纯姓名重发：${sent.response?.message ?? ''}`,
         );
-        const noAt = this.buildGroupBriefPost(rows, today, false, narrative, closureReminders);
+        const noAt = this.buildGroupBriefPost(rows, today, false, narrative, closureReminders, closureProjects.map(p => p.mentionPeople || []));
         sent = await this.feishuNotify.sendGroupCard(
           'project_brief_group', chatId, projectBriefCard(noAt, imageKey, rows), noAt.fallback,
         );
@@ -3309,6 +3310,7 @@ export class TasksService implements OnModuleInit {
     withAt = true,
     narrative?: string | null,
     closureReminders: string[] = [],
+    closurePeople: { name: string; feishu_user_id?: string }[][] = [],
   ): {
     title: string;
     content: Record<string, any>[][];
@@ -3459,7 +3461,14 @@ export class TasksService implements OnModuleInit {
 
     if (closureReminders.length) {
       appendSpacedLine([seg('📌 关键提醒 · 项目结项')], '关键提醒 · 项目结项');
-      for (const reminder of closureReminders) appendSpacedLine(linkedText(reminder), linkedFallback(reminder));
+      for (const [reminderIndex, reminder] of closureReminders.entries()) {
+        let segments = linkedText(reminder);
+        if (withAt) for (const person of new Map((closurePeople[reminderIndex] || []).map(p => [p.feishu_user_id, p])).values()) {
+          if (!person.name || !/^ou_[a-zA-Z0-9]+$/.test(person.feishu_user_id || '')) continue;
+          segments = segments.flatMap(part => part.tag !== 'text' ? [part] : String(part.text).split(person.name).flatMap((text, index) => index ? [{tag:'at',user_id:person.feishu_user_id},seg(text)] : [seg(text)]));
+        }
+        appendSpacedLine(segments, linkedFallback(reminder));
+      }
     }
     const overviewUrl = this.systemUrl('/dashboard');
     if (overviewUrl) {
@@ -3479,18 +3488,18 @@ export class TasksService implements OnModuleInit {
 
   // 每日个人汇总卡（09:10/13:10 定时 + 手动）：把"我的待办需处理项 + 待我验收 + 我负责项目风险 + 待审批变更"
   // 聚合为一张个人卡。仅当天"有事"的用户才发；同日同 slot 每人一次（type=daily_digest_<slot>）。
-  @Cron('0 8 * * 1', { timeZone: 'Asia/Shanghai' })
+  @Cron('0 30 16 * * 5', { timeZone: 'Asia/Shanghai' })
   async handleWeeklyReportDeadline() {
-    try { await this.notifyDailyDigests(undefined, '0900'); }
+    try { await this.notifyDailyDigests(undefined, '1630'); }
     catch (error) { this.logger.warn('项目周报截止前提醒失败：' + String(error)); }
   }
 
-  async notifyDailyDigests(u?: JwtPayload, slot: '0900' | '0910' | '1310' | 'manual' = 'manual', onlyUserId?: number) {
+  async notifyDailyDigests(u?: JwtPayload, slot: '1630' | '0910' | '1310' | 'manual' = 'manual', onlyUserId?: number) {
     return await this.weeklyNotifications.serializedDigest(slot, () => this.notifyDailyDigestsUnlocked(u, slot, onlyUserId))
       ?? { checked: 0, sent: 0, skippedDuplicate: 0, skippedEmpty: 0, digestUsers: 0, dueRange: '' };
   }
 
-  private async notifyDailyDigestsUnlocked(u: JwtPayload | undefined, slot: '0900' | '0910' | '1310' | 'manual', onlyUserId?: number) {
+  private async notifyDailyDigestsUnlocked(u: JwtPayload | undefined, slot: '1630' | '0910' | '1310' | 'manual', onlyUserId?: number) {
     if (u && !this.isAdminOrLeader(u)) throw new ForbiddenException('无权限手动触发每日提醒');
     const today = this.todayString();
     const dueLimit = this.addDays(today, 3)!;
@@ -3523,7 +3532,7 @@ export class TasksService implements OnModuleInit {
       return b;
     };
 
-    const projects = slot === '0900' ? [] : await this.projects.find({
+    const projects = slot === '1630' ? [] : await this.projects.find({
       where: { status: 'active', planLocked: true, terminationState: 'none' },
       order: { endAt: 'ASC', createdAt: 'ASC' },
     });
@@ -3589,7 +3598,7 @@ export class TasksService implements OnModuleInit {
     }
 
     // 待审批变更：与待办页面保持一致，只通知当前审批阶段的处理人。
-    const pendingChanges = slot === '0900' ? [] : await this.planChanges.find({ where: { status: 'pending' }, order: { createdAt: 'ASC' } });
+    const pendingChanges = slot === '1630' ? [] : await this.planChanges.find({ where: { status: 'pending' }, order: { createdAt: 'ASC' } });
     if (pendingChanges.length) {
       const pcIds = [...new Set(pendingChanges.map((c) => Number(c.projectId)))];
       const pcProjects = pcIds.length ? await this.projects.find({ where: { id: In(pcIds) } }) : [];
@@ -3612,7 +3621,7 @@ export class TasksService implements OnModuleInit {
     }
 
     const weeklyByOwner = new Map<number, any[]>();
-    for (const row of await this.weeklyNotifications.reminderRows(new Date(), slot === '0900')) {
+    for (const row of await this.weeklyNotifications.reminderRows(new Date(), slot === '1630')) {
       const uid = Number(row.ownerId);
       if (!uid) continue;
       const rows = weeklyByOwner.get(uid) || [];

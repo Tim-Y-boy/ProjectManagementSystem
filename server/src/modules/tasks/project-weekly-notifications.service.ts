@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { ProjectWeeklyReportsService } from '../project-weekly-reports/project-weekly-reports.service';
 import { weekHasWorkdaySql } from '../holidays/work-calendar';
+import { weekOf } from '../project-weekly-reports/project-weekly-reports.rules';
 
 const md = (value: unknown) => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/([\\`*_\[\]])/g, '\\$1');
 export function appendWeeklySection(card: Record<string, any>, heading: string, lines: string[]) {
@@ -40,7 +41,7 @@ export class ProjectWeeklyNotificationsService {
   async reminderRows(now = new Date(), beforeDeadline = false) {
     const rows = await this.reports.notificationRows(now);
     return rows.filter(row => row.status !== 'submitted' && (beforeDeadline
-      ? !row.overdue && new Date(row.dueAt).getTime() - now.getTime() > 0 && new Date(row.dueAt).getTime() - now.getTime() <= 3600000
+      ? row.weekStart === weekOf(now) && !row.overdue
       : row.overdue));
   }
 

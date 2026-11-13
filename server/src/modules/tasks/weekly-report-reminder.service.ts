@@ -37,6 +37,9 @@ export class WeeklyReportReminderService {
       locked = lock.locked;
       if (!locked) return;
       const rows = (await this.reports.notificationRows(now)).filter(row => row.weekStart === week);
+      const people = rows.length ? await this.db.query('SELECT id,feishu_user_id FROM users WHERE id=ANY($1::bigint[])', [[...new Set(rows.map(row => row.ownerId))]]) : [];
+      const openIds = new Map(people.map((person: any) => [Number(person.id), person.feishu_user_id]));
+      rows.forEach(row => { row.ownerOpenId = openIds.get(Number(row.ownerId)); });
       const message = weeklyReportReminderCard(rows, week, addDays(week, 6), `${base}/daily-report?tab=weekly&weekStart=${week}`);
       if (!message.count) return;
       for (const target of new Set(config.feishu.weeklyProgressGroupTargets)) {

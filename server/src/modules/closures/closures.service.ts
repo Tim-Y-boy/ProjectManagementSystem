@@ -427,7 +427,9 @@ export class ClosuresService {
       const f = await this.facts(Number(p.id));
       if (!f.ready || f.project.status !== 'active' || f.project.termination_state !== 'none') continue;
       const [request] = await this.db.query(`SELECT c.id,c.snapshot->'workflow' AS workflow,u.name AS approver_name FROM project_closures c LEFT JOIN users u ON u.id=c.approver_id WHERE c.project_id=$1 AND c.status='pending' ORDER BY c.id DESC LIMIT 1`, [p.id]);
-      rows.push({ projectId: p.id, name: f.project.name, completedDate: f.completedDate, waitingDays: f.waitingDays,
+      const pendingIds = request?.workflow?.reviews?.filter((r: any) => r.status === 'pending').map((r: any) => Number(r.userId)) || [];
+      const mentionPeople = request ? await this.db.query(`SELECT id,name,feishu_user_id FROM users WHERE id=ANY($1::bigint[]) OR (id=(SELECT approver_id FROM project_closures WHERE id=$2) AND $3)`, [pendingIds, request.id, !request.workflow || (request.workflow.stage === 'final' && request.workflow.reviews.every((r: any) => r.status === 'approved'))]) : await this.db.query('SELECT id,name,feishu_user_id FROM users WHERE id=ANY($1::bigint[])', [owners.map(o => Number(o.id))]);
+      rows.push({ mentionPeople, projectId: p.id, name: f.project.name, completedDate: f.completedDate, waitingDays: f.waitingDays,
         plannedEnd: f.plannedEnd, state: f.project.closure_state, requestId: request?.id,
         approverName: request ? pendingClosureApproverName(request.workflow, request.approver_name) : '结项审核人员', owners });
     }
