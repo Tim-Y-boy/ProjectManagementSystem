@@ -31,13 +31,19 @@ export const config = {
     // Additional groups, comma-separated; merge with the legacy group and deduplicate.
     briefGroupChatIds: process.env.FEISHU_BRIEF_GROUP_CHAT_IDS?.trim() || '',
     weeklyProgressExcludedChatIds: process.env.FEISHU_WEEKLY_PROGRESS_EXCLUDED_CHAT_IDS?.trim() || '',
+    // Route report summaries and project progress independently of legacy test/group lists.
+    weeklyReportGroupChatId: process.env.FEISHU_WEEKLY_REPORT_GROUP_CHAT_ID?.trim() || '',
+    projectProgressGroupChatId: process.env.FEISHU_PROJECT_PROGRESS_GROUP_CHAT_ID?.trim() || '',
+    get projectProgressGroupTargets(): string[] {
+      return this.projectProgressGroupChatId ? [this.projectProgressGroupChatId] : [];
+    },
     get briefGroupTargets(): string[] {
       return [...new Set([this.briefGroupChatId, this.briefGroupChatIds]
         .flatMap(value => value.split(',')).map(value => value.trim()).filter(Boolean))];
     },
     get weeklyProgressGroupTargets(): string[] {
       const excluded = new Set(this.weeklyProgressExcludedChatIds.split(',').map(value => value.trim()).filter(Boolean));
-      return this.briefGroupTargets.filter(id => !excluded.has(id));
+      return this.projectProgressGroupTargets.filter(id => !excluded.has(id));
     },
   },
   db: {

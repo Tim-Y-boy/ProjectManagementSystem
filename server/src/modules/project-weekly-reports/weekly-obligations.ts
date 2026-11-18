@@ -5,18 +5,42 @@ import { weekHasWorkdaySql } from '../holidays/work-calendar';
 export function weekNeedsExecutionReportSql(projectId: string, week: string) {
   const leaf = `t.project_id=${projectId} AND t.status<>'cancelled'
     AND NOT EXISTS(SELECT 1 FROM tasks child WHERE child.parent_id=t.id AND child.status<>'cancelled')`;
-  return `NOT (EXISTS(SELECT 1 FROM tasks t WHERE ${leaf})
+  const start = `((${week})::date::timestamp AT TIME ZONE 'Asia/Shanghai')`;
+  const end = `(((${week})::date+7)::timestamp AT TIME ZONE 'Asia/Shanghai')`;
+  // Completed earlier phases may coexist with postponed todo leaves. Neither
+  // implies execution this week; preserve obligations when weekly evidence exists.
+  const postponed = `(EXISTS(SELECT 1 FROM tasks t WHERE ${leaf})
+    AND NOT EXISTS(SELECT 1 FROM tasks t WHERE ${leaf}
+      AND NOT ((t.status='todo' AND t.start_at IS NOT NULL AND t.start_at >= (${week})::date+7)
+        OR (t.status='done' AND t.completed_at IS NOT NULL AND t.completed_at < ${start})))
+    AND NOT EXISTS(SELECT 1 FROM task_daily_updates d WHERE d.project_id=${projectId}
+      AND d.work_date >= (${week})::date AND d.work_date < (${week})::date+7)
+    AND NOT EXISTS(SELECT 1 FROM task_assets a WHERE a.project_id=${projectId}
+      AND a.created_at >= ${start} AND a.created_at < ${end})
+    AND NOT EXISTS(SELECT 1 FROM tasks t WHERE ${leaf} AND (
+      EXISTS(SELECT 1 FROM task_logs l WHERE l.task_id=t.id AND l.action<>'auto_rollup'
+        AND l.created_at >= ${start} AND l.created_at < ${end}
+        AND (l.from_status IN ('doing','pending_accept') OR l.to_status IN ('doing','pending_accept','done')))
+      OR (SELECT l.to_status FROM task_logs l WHERE l.task_id=t.id
+        AND l.action<>'auto_rollup' AND l.to_status IS NOT NULL AND l.created_at < ${end}
+        ORDER BY l.created_at DESC,l.id DESC LIMIT 1) IN ('doing','pending_accept'))))`;
+  return `NOT ${postponed} AND NOT (EXISTS(SELECT 1 FROM tasks t WHERE ${leaf})
     AND NOT EXISTS(SELECT 1 FROM tasks t WHERE ${leaf}
       AND (t.status<>'done' OR t.completed_at IS NULL
         OR t.completed_at >= ((${week})::date::timestamp AT TIME ZONE 'Asia/Shanghai'))))`;
 }
-export const ELIGIBLE = `SELECT project.id AS project_id, w::date AS week_start
+export function eligibleWeeksSql(scope: { week?: string; project?: string; deferExecutionCheck?: boolean } = {}) {
+  const first = "date_trunc('week',settings.enabled_at AT TIME ZONE 'Asia/Shanghai')";
+  const last = "date_trunc('week',$1::timestamptz AT TIME ZONE 'Asia/Shanghai')";
+  return `SELECT project.id AS project_id, w::date AS week_start
  FROM project_weekly_report_settings settings
- CROSS JOIN LATERAL generate_series(date_trunc('week',settings.enabled_at AT TIME ZONE 'Asia/Shanghai'),
- date_trunc('week',$1::timestamptz AT TIME ZONE 'Asia/Shanghai'),interval '1 week') w
+ ${scope.week
+    ? `CROSS JOIN LATERAL (SELECT ${scope.week}::date::timestamp AS w WHERE ${scope.week}::date::timestamp BETWEEN ${first} AND ${last}) selected_week`
+    : `CROSS JOIN LATERAL generate_series(${first},${last},interval '1 week') w`}
  CROSS JOIN projects project
  WHERE project.plan_locked=true AND ${weekHasWorkdaySql('w')}
- AND ${weekNeedsExecutionReportSql('project.id', 'w')}
+ ${scope.project ? `AND project.id=${scope.project}::int` : ''}
+ ${scope.deferExecutionCheck ? '' : `AND ${weekNeedsExecutionReportSql('project.id', 'w')}`}
  AND project.created_at < ((w::date+7)::timestamp AT TIME ZONE 'Asia/Shanghai') AND project.created_at <= $1::timestamptz
  AND (project.start_at <= LEAST(w::date+6,($1::timestamptz AT TIME ZONE 'Asia/Shanghai')::date)
    OR EXISTS(SELECT 1 FROM task_daily_updates d WHERE d.project_id=project.id
@@ -38,3 +62,5 @@ export const ELIGIBLE = `SELECT project.id AS project_id, w::date AS week_start
          AND reopened.reviewed_at < ((w::date+7)::timestamp AT TIME ZONE 'Asia/Shanghai')
          AND reopened.reviewed_at <= $1::timestamptz))
  AND (project.status='active' OR project.archived_at IS NOT NULL OR project.terminated_at IS NOT NULL)`;
+}
+export const ELIGIBLE = eligibleWeeksSql();

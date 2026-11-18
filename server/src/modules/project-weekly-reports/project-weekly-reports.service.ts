@@ -9,7 +9,7 @@ import { addDays, weekOf, weekWindow } from './project-weekly-reports.rules';
 
 // Virtual obligations make read-only requests pure reads. The collector durably retains
 // obligations, including those whose projects subsequently close or change owners.
-import { ELIGIBLE, weekNeedsExecutionReportSql } from './weekly-obligations';
+import { ELIGIBLE, eligibleWeeksSql, weekNeedsExecutionReportSql } from './weekly-obligations';
 import { weekHasWorkdaySql } from '../holidays/work-calendar';
 
 @Injectable()
@@ -24,22 +24,31 @@ export class ProjectWeeklyReportsService {
 
   private async rows(user: JwtPayload, now: Date, m: EntityManager = this.db.manager, scope: { week?: string; projectId?: number } = {}) {
     const unrestricted = user.readOnly || user.roles.includes('admin') || Number(await this.closures.recipient('gm', m)) === Number(user.userId);
-    const rows = await m.query(`WITH eligible AS (${ELIGIBLE}), obligations AS (
-      SELECT * FROM eligible UNION SELECT project_id,week_start FROM project_weekly_reports)
+    const eligible = eligibleWeeksSql({ week: scope.week ? '$3' : undefined, project: scope.projectId ? '$4' : undefined, deferExecutionCheck: true });
+    // Filter candidates first and materialize each obligation's execution check
+    // once; otherwise PostgreSQL duplicates its correlated subqueries in SELECT/WHERE.
+    const rows = await m.query(`WITH eligible AS (${eligible}), obligations AS (
+      SELECT * FROM eligible UNION SELECT project_id,week_start FROM project_weekly_reports
+        WHERE ($3::date IS NULL OR week_start=$3::date) AND ($4::int IS NULL OR project_id=$4::int)),
+      checked AS MATERIALIZED (
+        SELECT o.project_id,o.week_start,
+          (${weekHasWorkdaySql('o.week_start')} AND ${weekNeedsExecutionReportSql('project.id', 'o.week_start')}) AS requires_report
+        FROM obligations o JOIN projects project ON project.id=o.project_id
+        WHERE ${unrestricted ? 'true' : dailyReportProjectScope('$2')})
       SELECT project.id AS "projectId",project.name AS "projectName",project.dept_id AS "deptId",dept.name AS "deptName",
       owner.id AS "ownerId",owner.name AS "ownerName",owner.avatar_url AS "ownerAvatarUrl",to_char(o.week_start,'YYYY-MM-DD') AS "weekStart",
-      (${weekHasWorkdaySql('o.week_start')} AND ${weekNeedsExecutionReportSql('project.id', 'o.week_start')}) AS "requiresReport",
+      o.requires_report AS "requiresReport",
       COALESCE(r.status,'missing') AS status,COALESCE(r.overall_status,'') AS "overallStatus",
       COALESCE(r.achievements,'') AS achievements,COALESCE(r.risks,'') AS risks,COALESCE(r.coordination,'') AS coordination,
       COALESCE(r.next_week,'') AS "nextWeek",COALESCE(r.version,0) AS version,r.submitted_at AS "submittedAt",project.closure_state AS "closureState",
       (COALESCE(project.weekly_report_owner_id,project.owner_id)=$2) AS "isOwner"
-      FROM obligations o JOIN projects project ON project.id=o.project_id
+      FROM checked o JOIN projects project ON project.id=o.project_id
       LEFT JOIN project_weekly_reports r ON r.project_id=o.project_id AND r.week_start=o.week_start
       LEFT JOIN departments dept ON dept.id=project.dept_id
       LEFT JOIN users owner ON owner.id=COALESCE(
         CASE WHEN r.status='submitted' THEN r.submitted_by END,
         project.weekly_report_owner_id,project.owner_id)
-      WHERE ((${weekHasWorkdaySql('o.week_start')} AND ${weekNeedsExecutionReportSql('project.id', 'o.week_start')}) OR r.status='submitted' OR r.status='draft')
+      WHERE (o.requires_report OR r.status='submitted' OR r.status='draft')
         AND ${unrestricted ? 'true' : dailyReportProjectScope('$2')}
         AND ($3::date IS NULL OR o.week_start=$3::date)
         AND ($4::int IS NULL OR project.id=$4::int)

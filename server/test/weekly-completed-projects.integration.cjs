@@ -9,7 +9,10 @@ async function main() {
   await client.connect();
   try {
     await client.query('BEGIN');
-    await client.query(`CREATE TEMP TABLE tasks(id int,project_id int,parent_id int,status text,completed_at timestamptz) ON COMMIT DROP`);
+    await client.query(`CREATE TEMP TABLE tasks(id int,project_id int,parent_id int,status text,completed_at timestamptz,start_at date) ON COMMIT DROP`);
+    await client.query(`CREATE TEMP TABLE task_logs(id int,task_id int,action text,from_status text,to_status text,created_at timestamptz) ON COMMIT DROP`);
+    await client.query(`CREATE TEMP TABLE task_daily_updates(project_id int,work_date date) ON COMMIT DROP`);
+    await client.query(`CREATE TEMP TABLE task_assets(project_id int,created_at timestamptz) ON COMMIT DROP`);
     const required = async week => (await client.query(`SELECT ${weekNeedsExecutionReportSql('1','$1')} AS required`,[week])).rows[0].required;
     assert.equal(await required('2026-11-09'),true,'no tasks is not considered fully completed');
     await client.query(`INSERT INTO tasks VALUES (1,1,NULL,'doing',NULL),(2,1,1,'done','2026-11-08T23:59:59+08:00'),(3,1,1,'cancelled',NULL)`);
@@ -22,6 +25,36 @@ async function main() {
     assert.equal(await required('2026-11-16'),true,'reopened task resumes reporting');
     await client.query(`UPDATE tasks SET status='done' WHERE id=2`);
     assert.equal(await required('2026-11-16'),true,'unknown completion date must not erase reporting obligations');
+    await client.query(`UPDATE tasks SET status='todo',start_at='2027-01-21' WHERE id=2`);
+    assert.equal(await required('2026-11-16'),false,'stale doing parent does not require a report for postponed todo leaves');
+    await client.query(`INSERT INTO task_logs VALUES (1,1,'auto_rollup','todo','doing','2026-11-16T09:00:00+08:00')`);
+    assert.equal(await required('2026-11-16'),false,'parent rollup logs do not count as execution');
+    await client.query(`INSERT INTO task_logs VALUES (2,2,'start','todo','doing','2026-11-02T09:00:00+08:00'),(3,2,'reset','doing','todo','2026-11-13T09:00:00+08:00')`);
+    assert.equal(await required('2026-11-02'),true,'start week retains reporting');
+    assert.equal(await required('2026-11-09'),true,'week containing execution before postponement retains reporting');
+    assert.equal(await required('2026-11-16'),false,'earlier execution does not create later idle obligations');
+    await client.query(`INSERT INTO tasks VALUES (8,1,1,'done','2026-10-30T10:00:00+08:00','2026-10-01')`);
+    assert.equal(await required('2026-11-16'),false,'completed earlier phase plus future todo leaves is idle despite doing parent');
+    await client.query(`UPDATE tasks SET completed_at='2026-11-17T10:00:00+08:00' WHERE id=8`);
+    assert.equal(await required('2026-11-16'),true,'completion within the reporting week remains reportable');
+    await client.query(`UPDATE tasks SET completed_at=NULL WHERE id=8`);
+    assert.equal(await required('2026-11-16'),true,'unknown completion time is not assumed to be earlier work');
+    await client.query(`UPDATE tasks SET completed_at='2026-10-30T10:00:00+08:00' WHERE id=8`);
+    await client.query(`INSERT INTO task_daily_updates VALUES (1,'2026-11-17')`);
+    assert.equal(await required('2026-11-16'),true,'actual weekly progress retains reporting');
+    await client.query(`DELETE FROM task_daily_updates`);
+    await client.query(`INSERT INTO task_assets VALUES (1,'2026-11-18T09:00:00+08:00')`);
+    assert.equal(await required('2026-11-16'),true,'weekly deliverable retains reporting');
+    await client.query(`DELETE FROM task_assets`);
+    await client.query(`UPDATE tasks SET start_at=NULL WHERE id=2`);
+    assert.equal(await required('2026-11-16'),true,'unknown schedule is not assumed postponed');
+    await client.query(`UPDATE tasks SET start_at='2026-11-20' WHERE id=2`);
+    assert.equal(await required('2026-11-16'),true,'tasks planned within the week remain reportable');
+    await client.query(`INSERT INTO tasks(id,project_id,parent_id,status) VALUES (4,1,NULL,'doing'),(5,1,4,'doing'),(6,1,5,'todo'),(7,1,5,'cancelled')`);
+    const { RepairIdleParentTasks1803300000000 } = require('../src/migrations/1803300000000-RepairIdleParentTasks');
+    await new RepairIdleParentTasks1803300000000().up({ query: sql => client.query(sql) });
+    assert.deepEqual((await client.query(`SELECT status FROM tasks WHERE id IN (1,4,5) ORDER BY id`)).rows.map(r=>r.status),['doing','todo','todo']);
+    await new RepairIdleParentTasks1803300000000().up({ query: sql => client.query(sql) });
     console.log('completed-project weekly obligation regression passed');
   } finally { await client.query('ROLLBACK'); await client.end(); }
 }

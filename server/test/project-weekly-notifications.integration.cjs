@@ -49,6 +49,26 @@ async function main() {
       const result = await service.withLeaderSummary(new Date('2026-12-08T09:00:00+08:00'), async () => { throw Error('must not deliver concurrently'); });
       assert.equal(result.skipped, 'already_running');
     } finally { await blocker.query('SELECT pg_advisory_unlock(781260, 30)'); await blocker.release(); }
+    const { config } = require('../src/config/config');
+    const oldTarget=config.feishu.weeklyReportGroupChatId,oldUrl=process.env.WEB_FRONT_URL;
+    config.feishu.weeklyReportGroupChatId='oc_management_test';process.env.WEB_FRONT_URL='https://example.invalid';
+    const groupCalls=[];let success=false;
+    service.notify={sendGroupCard:async(type,target,card)=>{groupCalls.push({type,target,card});return {success};}};
+    try {
+      await service.sendGroupSummary(monday);
+      assert.equal((await db.query("SELECT * FROM project_weekly_notification_deliveries WHERE kind LIKE 'group:%'")).length,0);
+      success=true;
+      await service.sendGroupSummary(monday);
+      await service.sendGroupSummary(monday);
+      assert.equal(groupCalls.length,2,'failed group delivery retries, then deduplicates');
+      assert.ok(groupCalls.every(call=>call.target==='oc_management_test'&&call.type==='project_weekly_summary'));
+      assert.match(JSON.stringify(groupCalls[1].card),/2026-11-02/);
+      assert.match(JSON.stringify(groupCalls[1].card),/2026-11-09/);
+      assert.equal((await db.query("SELECT * FROM project_weekly_notification_deliveries WHERE kind='leader'")).length,4,'group delivery preserves leader receipts');
+      assert.equal((await db.query("SELECT * FROM project_weekly_notification_deliveries WHERE kind LIKE 'group:%'")).length,2,'group delivery is independent of leader delivery');
+      await service.sendGroupSummary(new Date('2026-11-22T09:01:00+08:00'));
+      assert.equal(groupCalls.length,2,'no group summary on rest days');
+    } finally {config.feishu.weeklyReportGroupChatId=oldTarget;if(oldUrl===undefined)delete process.env.WEB_FRONT_URL;else process.env.WEB_FRONT_URL=oldUrl;}
     console.log('project weekly notifications isolated PostgreSQL integration passed; no real notifications sent');
   } finally {
     if (db?.isInitialized) await db.destroy();

@@ -96,7 +96,7 @@ const canApprove = (c: any) => {
   }
   // owner 级：任一负责人可审（与后端一致）
   if (c.stage === 'owner') return meIsOwner(c);
-  // 终审级：单上总经办负责人(刘维浩)，或管理员；不放开给其它领导
+  // 终审级：单上总经办负责人，或管理员；不放开给其它领导
   return auth.has('admin') || String(c.finalApproverId) === String(meId.value);
 };
 // 待审阶段的展示文案：负责人级 / 总经办终审级

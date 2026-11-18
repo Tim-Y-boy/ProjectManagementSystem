@@ -21,6 +21,8 @@ function fixture(items, remainingStatus = 'done') {
       ? rows.filter(t => t.parentId === where.parentId && t.status !== 'cancelled')
       : rows.filter(t => where.id.value.includes(t.id)),
     create: x => x,
+    count: async ({ where }) => rows.filter(t => t.parentId === where.parentId && t.status !== 'cancelled').length,
+    update: async (id, patch) => Object.assign(rows.find(t => t.id === id), patch),
     save: async x => { if (!x.id) { x.id = rows.length + 1; rows.push(x); } return x; },
   };
   s.canManageProject = async () => true;
@@ -36,6 +38,23 @@ function fixture(items, remainingStatus = 'done') {
   return { s, rows, logs };
 }
 const deletion = { changeType: 'delete', taskId: 4, before: {}, after: {} };
+
+test('postponing todo children resets stale doing parents through all ancestors', async () => {
+  const { s, rows } = fixture([{ changeType: 'date', taskId: 3, before: {}, after: { startAt: '2027-01-21' } }], 'todo');
+  rows[0].completedAt = rows[1].completedAt = new Date();
+  await s.approvePlanChange({ userId: 9 }, 10);
+  assert.equal(rows[2].startAt, '2027-01-21');
+  assert.equal(rows[1].status, 'todo');
+  assert.equal(rows[0].status, 'todo');
+  assert.equal(rows[1].completedAt, null);
+});
+
+test('postponing dates does not reset genuinely running children', async () => {
+  const { s, rows } = fixture([{ changeType: 'date', taskId: 2, before: {}, after: { startAt: '2027-01-21' } }], 'doing');
+  await s.approvePlanChange({ userId: 9 }, 10);
+  assert.equal(rows[1].status, 'doing');
+  assert.equal(rows[2].status, 'doing');
+});
 
 test('approved deletion rolls up completed remaining children through all ancestors', async () => {
   const { s, rows, logs } = fixture([deletion]);

@@ -76,8 +76,8 @@ test('risk ordering, deadline countdown and overview button preserve destination
 test('group brief tolerates upload failure and falls back from rejected cards to original post', async () => {
   const { TasksService } = require('../src/modules/tasks/tasks.service');
   const { config } = require('../src/config/config');
-  const previous = config.feishu.briefGroupChatId;
-  config.feishu.briefGroupChatId = 'oc_test';
+  const previous = config.feishu.projectProgressGroupChatId;
+  config.feishu.projectProgressGroupChatId = 'oc_test';
   try {
     const service = Object.create(TasksService.prototype);
     const calls = [];
@@ -97,7 +97,7 @@ test('group brief tolerates upload failure and falls back from rejected cards to
     assert.equal(calls.length, 3);
     assert.equal(calls[0][2].body.elements.some(e => e.tag === 'img'), false);
     assert.ok(Array.isArray(calls[2][3]));
-  } finally { config.feishu.briefGroupChatId = previous; }
+  } finally { config.feishu.projectProgressGroupChatId = previous; }
 });
 
 test('real mentions remain interactive, disabled mentions explicitly name the owner', () => {

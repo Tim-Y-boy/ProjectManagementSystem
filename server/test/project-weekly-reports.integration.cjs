@@ -258,6 +258,28 @@ async function main() {
     assert.ok(!requiredAfterCompletion.some(r=>r.weekStart==='2026-12-21'),'stale empty obligations cannot block closure');
     assert.ok(requiredAfterCompletion.some(r=>r.weekStart==='2026-12-14'),'completion week remains required');
     assert.equal((await svc.detail(owner,1,'2026-11-02')).status,'submitted','completion preserves submitted history');
+    await db.query(`INSERT INTO projects(id,name,owner_id,created_by,plan_locked,start_at,created_at)
+      VALUES(10,'Postponed',1,1,true,'2026-11-01','2026-10-01')`);
+    await db.query(`INSERT INTO tasks(id,project_id,parent_id,title,creator_id,status,start_at,created_at) VALUES
+      (1000,10,NULL,'Stale parent',1,'doing','2027-01-21','2026-10-01'),
+      (1001,10,1000,'Future leaf',1,'todo','2027-01-21','2026-10-01')`);
+    await db.query(`INSERT INTO project_weekly_reports(project_id,week_start,status) VALUES
+      (10,'2026-12-21','missing'),(10,'2026-12-14','draft')`);
+    await svc.collect();
+    assert.ok(!(await svc.todo(owner)).some(r=>r.projectId===10),'postponed project removes persisted missing and draft obligations');
+    assert.ok(!(await svc.notificationRows()).some(r=>r.projectId===10),'postponed project sends no weekly reminder');
+    assert.equal((await closure.missingWeeklyReports(10,db.manager)).length,0,'idle weeks cannot block closure');
+    assert.equal((await svc.list(owner,{projectId:10,weekStart:'2026-12-21'})).length,0);
+    const idleDraft=await svc.detail(owner,10,'2026-12-14');
+    assert.equal(idleDraft.status,'draft','existing draft content remains available');
+    assert.equal(idleDraft.requiresReport,false);
+    await db.query(`INSERT INTO tasks(id,project_id,parent_id,title,creator_id,status,completed_at,created_at) VALUES
+      (1002,10,1000,'Earlier completed phase',1,'done','2026-10-30T10:00:00+08:00','2026-10-01')`);
+    assert.ok(!(await svc.todo(owner)).some(r=>r.projectId===10),'completed earlier phases with future todo tasks do not require weekly reports');
+    assert.ok(!(await svc.notificationRows()).some(r=>r.projectId===10),'mixed completed and postponed tasks send no weekly reminders');
+    assert.equal((await closure.missingWeeklyReports(10,db.manager)).length,0,'mixed completed and postponed tasks do not block closure');
+    assert.equal((await svc.list(owner,{projectId:10,weekStart:'2026-12-21'})).length,0,'persisted missing report is hidden for mixed idle project');
+    assert.equal((await svc.detail(owner,10,'2026-12-14')).requiresReport,false,'mixed idle project retains draft without requiring submission');
     console.log('project weekly report isolated PostgreSQL integration passed');
   } finally {
     if(db?.isInitialized) await db.destroy();

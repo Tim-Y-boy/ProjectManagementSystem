@@ -14,9 +14,9 @@ test('Friday 16:00 Beijing; current week only, successful group delivery dedupli
   {projectId:2,projectName:'历史项目',weekStart:'2026-11-02',status:'missing'},
   {projectId:3,projectName:'已交项目',weekStart:'2026-11-09',status:'submitted'}
  ]},{sendGroupCard:async(type,target,card)=>{cards.push(card);delivered=true;return {success:true}}});
- const targets=config.feishu.weeklyProgressGroupTargets; const url=process.env.WEB_FRONT_URL;
- config.feishu.weeklyProgressGroupTargets=['test'];process.env.WEB_FRONT_URL='https://example.invalid';
+ const targets=config.feishu.weeklyReportGroupChatId; const url=process.env.WEB_FRONT_URL;
+ config.feishu.weeklyReportGroupChatId='test';process.env.WEB_FRONT_URL='https://example.invalid';
  try {await service.dispatch(new Date('2026-11-13T16:00:00+08:00'));await service.dispatch(new Date('2026-11-13T16:00:00+08:00'));
  assert.equal(cards.length,1);assert.match(JSON.stringify(cards[0]),/本周项目/);assert.doesNotMatch(JSON.stringify(cards[0]),/历史项目|已交项目/);
- } finally {config.feishu.weeklyProgressGroupTargets=targets;if(url===undefined)delete process.env.WEB_FRONT_URL;else process.env.WEB_FRONT_URL=url;}
+ } finally {config.feishu.weeklyReportGroupChatId=targets;if(url===undefined)delete process.env.WEB_FRONT_URL;else process.env.WEB_FRONT_URL=url;}
 });

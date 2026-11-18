@@ -12,7 +12,7 @@ export function reportAssetBelongsToTask(asset: any, taskId: any, updates: any[]
   return String(asset.task_id) === String(taskId)
     || updates.some(update => String(update.task_id) === String(taskId) && assetLinksProgress(asset, update.id));
 }
-export const reportKinds = {ontime:'正常完成',late:'延期完成',supplement:'已确认合理补填',unknown:'依据不完整',unfinished:'未完成'};
+export const reportKinds = {early:'提前完成',ontime:'正常完成',late:'延期完成',supplement:'已确认合理补填',unknown:'依据不完整',unfinished:'未完成'};
 
 // 只使用本张报告的快照；不读取当前项目状态，不将父任务和子任务重复计数。
 export function reportModel(request: any) {
@@ -30,15 +30,17 @@ export function reportModel(request: any) {
     const latestWorkDate=workDates.length?workDates[workDates.length-1]:null;
     const lastSubmittedAt=submitted.length?submitted[submitted.length-1]:null;
     const completed = reportDate(t.completed_at);
-    const days = validDay(t.due_at) && completed ? Math.max(0,Math.round((Date.parse(completed)-Date.parse(t.due_at))/86400000)) : null;
+    const difference = validDay(t.due_at) && completed ? Math.round((Date.parse(completed)-Date.parse(t.due_at))/86400000) : null;
+    const days = difference == null ? null : Math.max(0,difference);
+    const earlyDays = difference == null ? null : Math.max(0,-difference);
     const exempted = progress.some((u:any)=>u.status==='exempted') && progress.every((u:any)=> {
       if (!validDay(u.work_date) || !validDay(t.due_at) || u.work_date>t.due_at || !reportDate(u.created_at)) return false;
       return u.status==='exempted' ? !reasonableSupplementDisabledReason(t.due_at,{workDate:u.work_date,createdAt:u.created_at}) : reportDate(u.created_at)! <= t.due_at;
     });
-    const kind = t.status!=='done' ? 'unfinished' : days==null ? 'unknown' : days===0 ? 'ontime' : exempted ? 'supplement' : 'late';
+    const kind = t.status!=='done' ? 'unfinished' : days==null ? 'unknown' : (earlyDays||0)>0 ? 'early' : days===0 ? 'ontime' : exempted ? 'supplement' : 'late';
     let root=t; const seen=new Set([String(t.id)]);
     while(root.parent_id!=null&&byId.has(String(root.parent_id))&&!seen.has(String(root.parent_id))) {root=byId.get(String(root.parent_id));seen.add(String(root.id));}
-    return {...t,latestWorkDate,lastSubmittedAt,kind,label:reportKinds[kind],lateDays:days,completedDate:completed,updates:progress,assets:material,groupId:String(root.id),groupTitle:root.title};
+    return {...t,latestWorkDate,lastSubmittedAt,kind,label:kind==='early'?`提前完成（提前 ${earlyDays} 天）`:reportKinds[kind],earlyDays,lateDays:days,completedDate:completed,updates:progress,assets:material,groupId:String(root.id),groupTitle:root.title};
   });
   const groups: Array<{id:string;title:string;tasks:any[]}> = [];
   for(const t of tasks){let g=groups.find(g=>g.id===t.groupId);if(!g){g={id:t.groupId,title:t.groupTitle,tasks:[]};groups.push(g);}g.tasks.push(t);}

@@ -28,6 +28,20 @@ test('invalid completion dates and missing deadlines stay unknown; Beijing midni
  const r=fixture();r.report.tasks=[task(1,null,'2026-09-15T16:00:00Z'),{...task(2,null),due_at:null},task(3,null,'broken')];r.report.updates=[];
  const m=reportModel(r);assert.equal(m.counts.late,1);assert.equal(m.counts.unknown,2);assert.equal(m.tasks[0].lateDays,1);
 });
+
+test('early completion uses Beijing calendar days and does not count parent tasks twice',()=>{
+ const r=fixture();r.report.tasks=[task(1,null),task(2,1,'2026-09-11T15:59:59Z'),task(3,1,'2026-09-14T16:00:00Z'),{...task(4,null,'2026-09-11T08:00:00Z'),status:'todo'},task(5,null,'2026-09-11T16:00:00Z')];r.report.updates=[];
+ const before=JSON.stringify(r),m=reportModel(r);
+ assert.equal(m.total,4);assert.equal(m.counts.early,2);assert.equal(m.counts.ontime,1);assert.equal(m.counts.unfinished,1);
+ assert.equal(m.tasks.find(t=>t.id===2).earlyDays,4);assert.equal(m.tasks.find(t=>t.id===2).lateDays,0);
+ assert.equal(m.tasks.find(t=>t.id===5).earlyDays,3);
+ assert.equal(m.tasks.find(t=>t.id===3).kind,'ontime');
+ assert.equal(m.tasks.find(t=>t.id===4).kind,'unfinished');
+ const html=renderClosureReport(r);
+ assert.match(html,/提前完成（提前 4 天）/);assert.match(html,/含提前完成 2 项/);
+ assert.match(html,/按期完成<\/span><strong class="stat-value">3 项/);
+ assert.equal(JSON.stringify(r),before);
+});
 test('report groups orphan evidence separately and never loses cancelled-task evidence',()=>{
  const r=fixture();r.report.updates.push(update(4,5),update(5,99));r.report.assets.push({id:10,task_id:null,title:'项目方案'});
  const m=reportModel(r);assert.equal(m.otherUpdates.length,2);assert.equal(m.otherAssets.length,1);

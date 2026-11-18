@@ -40,7 +40,7 @@ async function main() {
   assert.equal((await service.missingRows(db.manager, 1)).length, 1);
   assert.equal((await service.missingRows(db.manager, 2)).length, 1);
   assert.equal((await service.missingRows(db.manager, 3)).length, 1, 'project owner receives personal management todo');
-  config.feishu.briefGroupChatId = 'oc_isolated_fake_weekly_group';
+  config.feishu.projectProgressGroupChatId = 'oc_isolated_fake_weekly_group';
   await Promise.all([service.dispatch(), service.dispatch()]);
   assert.equal(sent.length, 3, 'one dispatch per recipient/group under concurrent scanning');
   const groupCard = sent.find(message => message[0] === 'group')[3];

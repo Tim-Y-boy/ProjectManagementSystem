@@ -1,5 +1,23 @@
 const {test}=require('node:test');const assert=require('node:assert/strict');
 const {renderClosureReport}=require('../src/modules/closures/closure-report');
+
+test('existing pending and approved reports show early completion from their own snapshots',()=>{
+ const data={project:{name:'提前交付'},workflow:{version:3,reviews:[],stage:'reviewers'},tasks:[
+  {id:1,title:'系统联调',status:'done',due_at:'2026-11-20',completed_at:'2026-11-16T08:00:00Z'},
+  {id:2,title:'用户培训',status:'done',due_at:'2026-11-16',completed_at:'2026-11-16T08:00:00Z'}],updates:[],assets:[]};
+ const before=JSON.stringify(data);
+ for(const embedded of [false,true])for(const status of ['pending','approved']){
+  const request=status==='pending'?{id:1,status,snapshot:data}:{id:1,status,report:data,snapshot:{tasks:[]}};
+  const html=renderClosureReport(request,{embedded});
+  assert.match(html,/提前完成（提前 4 天）/);
+  assert.match(html,/提前完成<\/span><strong>1 项/);
+  assert.match(html,/正常完成<\/span><strong>1 项/);
+  assert.match(html,/完成率 100%/);
+  assert.match(html,/2026-11-20/);assert.match(html,/2026-11-16/);assert.match(html,/按日历天计算/);
+  assert.doesNotMatch(html,/NaN|undefined|Invalid Date/);
+ }
+ assert.equal(JSON.stringify(data),before);
+});
 test('completion narrative uses frozen evidence for leaves and parent summaries',()=>{
  const report={project:{name:'历史报告'},workflow:{version:3,reviews:[],stage:'final'},tasks:[
   {id:1,title:'设备实施',status:'done'}, {id:2,parent_id:1,title:'培训',status:'done'}, {id:3,parent_id:1,title:'调试',status:'done'}],

@@ -5,12 +5,15 @@ const { TasksService } = require('../src/modules/tasks/tasks.service');
 const { WeeklyProgressService } = require('../src/modules/tasks/weekly-progress.service');
 
 async function withGroups(run) {
+  const progress = config.feishu.projectProgressGroupChatId;
+  config.feishu.projectProgressGroupChatId = 'oc_old';
   const excluded = config.feishu.weeklyProgressExcludedChatIds;
   config.feishu.weeklyProgressExcludedChatIds = '';
   const old = [config.feishu.briefGroupChatId, config.feishu.briefGroupChatIds];
   config.feishu.briefGroupChatId = 'oc_old';
   config.feishu.briefGroupChatIds = ' oc_new, oc_old, ,oc_new ';
   try { await run(); } finally {
+    config.feishu.projectProgressGroupChatId = progress;
     config.feishu.weeklyProgressExcludedChatIds = excluded;
     [config.feishu.briefGroupChatId, config.feishu.briefGroupChatIds] = old;
   }
@@ -24,7 +27,7 @@ test('group configuration merges legacy and additional groups without duplicates
   assert.deepEqual(config.feishu.briefGroupTargets, []);
 }));
 
-test('daily brief isolates failures and retries only the group that has not succeeded', () => withGroups(async () => {
+test('daily progress brief targets only technical group and retries failed delivery', () => withGroups(async () => {
   const service = Object.create(TasksService.prototype);
   const successful = new Set();
   const calls = [];
@@ -49,15 +52,15 @@ test('daily brief isolates failures and retries only the group that has not succ
 
   const first = await service.runProjectBriefToGroup();
   assert.equal(first.sent, false);
-  assert.deepEqual(calls, ['oc_old', 'oc_new']);
+  assert.deepEqual(calls, ['oc_old']);
   assert.equal(generated, 1, 'generate content once for both groups');
   failOld = false;
   await service.runProjectBriefToGroup();
-  assert.deepEqual(calls, ['oc_old', 'oc_new', 'oc_old']);
+  assert.deepEqual(calls, ['oc_old', 'oc_old']);
   assert.equal((await service.runProjectBriefToGroup()).skipped, 'already_sent');
 }));
 
-test('weekly dispatch tracks each group separately and leaves personal recipients unchanged', () => withGroups(async () => {
+test('weekly progress dispatch targets technical group and retains personal reminders', () => withGroups(async () => {
   const delivered = new Map(), calls = [];
   let failOld = true;
   const runner = {
@@ -77,19 +80,20 @@ test('weekly dispatch tracks each group separately and leaves personal recipient
     return { success: true };
   };
   await service.dispatch();
-  assert.deepEqual(calls, [['personal', '42'], ['group', 'oc_old'], ['group', 'oc_new']]);
+  assert.deepEqual(calls, [['personal', '42'], ['group', 'oc_old']]);
   failOld = false;
   await service.dispatch();
-  assert.deepEqual(calls[3], ['group', 'oc_old']);
-  assert.equal(calls.length, 4);
+  assert.deepEqual(calls[2], ['group', 'oc_old']);
+  assert.equal(calls.length, 3);
   await service.dispatch();
-  assert.equal(calls.length, 4);
+  assert.equal(calls.length, 3);
 }));
 
-test('weekly excluded group gets no batch while daily groups and personal reminder stay intact', () => withGroups(async () => {
-  config.feishu.weeklyProgressExcludedChatIds = ' oc_new, oc_new ';
+test('excluded technical group receives daily progress but no weekly supplement reminder; personal reminders remain', () => withGroups(async () => {
+  config.feishu.weeklyProgressExcludedChatIds = ' oc_old, oc_old ';
   assert.deepEqual(config.feishu.briefGroupTargets, ['oc_old', 'oc_new']);
-  assert.deepEqual(config.feishu.weeklyProgressGroupTargets, ['oc_old']);
+  assert.deepEqual(config.feishu.projectProgressGroupTargets, ['oc_old']);
+  assert.deepEqual(config.feishu.weeklyProgressGroupTargets, []);
   const calls = [];
   const runner = { connect: async () => {}, release: async () => {}, manager: {},
     query: async sql => sql.includes('pg_try_advisory_lock') ? [{ locked: true }] : [] };
@@ -97,5 +101,5 @@ test('weekly excluded group gets no batch while daily groups and personal remind
   service.missingRows = async () => [{ id: '1', assigneeIds: ['42'], weekStart: '2026-10-26' }];
   service.sendBatch = async batch => { calls.push([batch.channel, batch.target]); return { success: true }; };
   await service.dispatch();
-  assert.deepEqual(calls, [['personal', '42'], ['group', 'oc_old']]);
+  assert.deepEqual(calls, [['personal', '42']]);
 }));

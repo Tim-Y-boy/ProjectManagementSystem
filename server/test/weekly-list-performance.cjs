@@ -19,6 +19,16 @@ async function main() {
     console.log(JSON.stringify({operation:'weekly list',ms:Math.round(performance.now()-start),rows:rows.length}));
     const all = await svc.rows(user,now);
     assert.deepEqual(rows, all.filter(r=>r.weekStart==='2026-11-09'));
+    // Narrow queries must agree with the full history, including dates outside
+    // the enabled reporting window and per-project history navigation.
+    for (const weekStart of ['2025-01-06','2026-11-02','2026-11-16','2027-01-04']) {
+      assert.deepEqual(await svc.list(user,{weekStart},now),all.filter(r=>r.weekStart===weekStart));
+    }
+    if (all.length) {
+      const projectId=all[0].projectId;
+      assert.deepEqual(await svc.list(user,{projectId,allWeeks:true},now),all.filter(r=>r.projectId===projectId));
+      assert.deepEqual(await svc.list(user,{projectId,weekStart:'2026-11-09'},now),rows.filter(r=>r.projectId===projectId));
+    }
     const normalize = values => values.map(r => ({ projectId: r.projectId, weekStart: r.weekStart, version: r.version })).sort((a,b) => `${a.projectId}:${a.weekStart}`.localeCompare(`${b.projectId}:${b.weekStart}`));
     assert.deepEqual(normalize(await svc.updates(user)), normalize(all.filter(r => r.status === 'submitted')));
     const member = { userId: 1, roles: [] };

@@ -28,7 +28,7 @@ export class WeeklyReportReminderService {
     const holidays = new Map<string, string>(calendarRows.map((row: any) => [row.date, row.kind]));
     if (weeklyReminderDate(week, holidays) !== date) return;
     const base = String(process.env.WEB_FRONT_URL || process.env.APP_PUBLIC_URL || process.env.FRONTEND_URL || '').replace(/\/$/, '');
-    if (!base || !config.feishu.weeklyProgressGroupTargets.length) return;
+    if (!base || !config.feishu.weeklyReportGroupChatId) return;
     const runner = this.db.createQueryRunner();
     await runner.connect();
     let locked = false;
@@ -42,7 +42,7 @@ export class WeeklyReportReminderService {
       rows.forEach(row => { row.ownerOpenId = openIds.get(Number(row.ownerId)); });
       const message = weeklyReportReminderCard(rows, week, addDays(week, 6), `${base}/daily-report?tab=weekly&weekStart=${week}`);
       if (!message.count) return;
-      for (const target of new Set(config.feishu.weeklyProgressGroupTargets)) {
+      for (const target of [config.feishu.weeklyReportGroupChatId]) {
         const [sent] = await runner.query(`SELECT id FROM notifications WHERE type='weekly_report_group_reminder'
           AND target=$1 AND success=true AND sent_at >= $2::timestamptz AND sent_at < $3::timestamptz LIMIT 1`,
         [target, `${week}T00:00:00+08:00`, `${addDays(week, 7)}T00:00:00+08:00`]);

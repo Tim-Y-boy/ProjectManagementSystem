@@ -1887,7 +1887,7 @@ export class TasksService implements OnModuleInit {
     return this.canFinalApprove(u, change);
   }
 
-  // 终审人集合：单上记录的总经办负责人(finalApproverId，即刘维浩) + 管理员；不放开给其它领导/成员
+  // 终审人集合：单上记录的总经办负责人(finalApproverId) + 管理员；不放开给其它领导/成员
   private async finalApproverIdsOf(change: PlanChange): Promise<number[]> {
     const ids = new Set<number>();
     if (change.finalApproverId != null) ids.add(Number(change.finalApproverId));
@@ -1896,7 +1896,7 @@ export class TasksService implements OnModuleInit {
     return [...ids];
   }
 
-  // 终审级可否审批：属于"总经办负责人(刘维浩) 或 管理员"
+  // 终审级可否审批：属于"总经办负责人 或 管理员"
   // 注意：users.id/外键均为 bigint，运行时是字符串；u.userId 也来自 bigint，
   // 统一用字符串比较，避免 Number(...) 集合严格 includes(字符串) 永远不相等。
   private async canFinalApprove(u: JwtPayload, change: PlanChange): Promise<boolean> {
@@ -1968,7 +1968,7 @@ export class TasksService implements OnModuleInit {
       this.buildPlanChangeSummary(items, 50),
       this.userName(u.userId),
     ]);
-    // 通知当前级审批人：负责人级推全体项目负责人；终审级推"总经办负责人(刘维浩+同名)与管理员"
+    // 通知当前级审批人：负责人级推全体项目负责人；终审级推"总经办负责人与管理员"
     const stageNote = change.stage === 'owner' ? '请项目负责人审核。' : '请总经办负责人终审。';
     const recipients = change.stage === 'owner'
       ? await this.getProjectOwnerIds(project.id)
@@ -2085,7 +2085,7 @@ export class TasksService implements OnModuleInit {
         this.buildPlanChangeSummary(items, 50),
         this.userName(u.userId),
       ]);
-      // 负责人级通过后推给终审人集合（总经办负责人刘维浩(含同名)+管理员），排除审批人本人
+      // 负责人级通过后推给终审人集合（总经办负责人+管理员），排除审批人本人
       for (const rid of new Set(await this.finalApproverIdsOf(c))) {
         if (String(rid) === String(u.userId)) continue;
         await this.feishuNotify.sendCard(
@@ -2181,13 +2181,15 @@ export class TasksService implements OnModuleInit {
       if (it.changeType === 'date') {
         if (it.after.startAt !== undefined) patch.startAt = it.after.startAt || null;
         if (it.after.dueAt !== undefined) patch.dueAt = it.after.dueAt || null;
+        if (t.parentId != null) affectedParentIds.add(Number(t.parentId));
+        if (await this.hasActiveChildren(t.id)) affectedParentIds.add(Number(t.id));
       }
       if (Object.keys(patch).length) {
         await this.tasks.update(it.taskId, patch);
       }
       await this.addLog(t, u.userId, 'plan_change', { changeId: id, changeType: it.changeType, before: it.before, after: it.after });
     }
-    // 整批增删生效后再汇总，避免同批先删后增时将父任务误记为完成。
+    // 整批变更生效后再汇总，日期变更也需纠正遗留的父任务状态。
     for (const parentId of affectedParentIds) {
       await this.refreshParentStatus(parentId, u.userId);
     }
@@ -2942,7 +2944,7 @@ export class TasksService implements OnModuleInit {
    * 休息日 / 未配群 / 当日已发 返回 {skipped}。
    */
   async runProjectBriefToGroup(force = false) {
-    const chatIds = config.feishu.briefGroupTargets;
+    const chatIds = config.feishu.projectProgressGroupTargets;
     const today = this.todayString();
     if (!chatIds.length) return { skipped: 'no_chat', today };
     const targets: string[] = [];

@@ -1,19 +1,22 @@
 import { reportModel, reportKinds } from './closure-report-model';
 import { executiveReport } from './closure-report-summary';
 const escape=(value:any)=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const colors:Record<string,string>={ontime:'#278475',late:'#be4857',supplement:'#637fa8',unknown:'#b87919',unfinished:'#667580'};
+const colors:Record<string,string>={early:'#176451',ontime:'#62ad91',late:'#be4857',supplement:'#637fa8',unknown:'#b87919',unfinished:'#667580'};
 type Model=ReturnType<typeof reportModel>;
 type Brief=ReturnType<typeof executiveReport>;
 export function completionChart(m:Model,brief:Brief) {
   if(!m.total)return '<figure class="report-chart completion-chart"><figcaption>任务完成情况</figcaption><p class="chart-empty">暂无任务数据</p></figure>';
   let offset=0;
-  const segments=Object.entries(m.counts).filter(([,count])=>count>0).map(([kind,count])=>{
-    const size=count/m.total*100,segment='<circle cx="80" cy="80" r="60" pathLength="100" fill="none" stroke="'+colors[kind]+'" stroke-width="18" stroke-dasharray="'+size+' '+(100-size)+'" stroke-dashoffset="'+(-offset)+'" transform="rotate(-90 80 80)" />';
+  const entries=Object.entries(m.counts).filter(([,count])=>count>0);
+  const segments=entries.map(([kind,count])=>{
+    const size=count/m.total*100,gap=entries.length>1?Math.min(0.65,size*0.15):0;
+    const segment='<circle cx="80" cy="80" r="60" pathLength="100" fill="none" stroke="'+colors[kind]+'" stroke-width="18" stroke-dasharray="'+(size-gap)+' '+(100-size+gap)+'" stroke-dashoffset="'+(-offset-gap/2)+'" transform="rotate(-90 80 80)" />';
     offset+=size;return segment;
   }).join('');
   const percent=Math.round(brief.completed/m.total*100);
+  const ring='<defs><filter id="completion-shadow" x="-25%" y="-25%" width="150%" height="160%"><feGaussianBlur in="SourceAlpha" stdDeviation="1.8"/><feOffset dy="3"/><feComponentTransfer><feFuncA type="linear" slope="0.2"/></feComponentTransfer><feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs><g filter="url(#completion-shadow)">'+segments+'</g><circle cx="80" cy="80" r="67.5" fill="none" stroke="#fff" stroke-opacity="0.2" stroke-width="1"/><circle cx="80" cy="80" r="52" fill="none" stroke="#123d32" stroke-opacity="0.1" stroke-width="1"/>';
   const legend=Object.entries(m.counts).filter(([,count])=>count>0).map(([kind,count])=>'<li><i style="background:'+colors[kind]+'"></i><span>'+escape(reportKinds[kind])+'</span><strong>'+count+' 项</strong></li>').join('');
-  return '<figure class="report-chart completion-chart"><figcaption>任务完成情况 <small>按完成方式划分</small></figcaption><div class="donut-layout"><svg viewBox="0 0 160 160" role="img" aria-label="已完成 '+brief.completed+' 项，共 '+m.total+' 项，完成率 '+percent+'%">'+segments+'<text x="80" y="79" text-anchor="middle" class="donut-value">'+percent+'%</text><text x="80" y="100" text-anchor="middle" class="donut-label">已完成 '+brief.completed+' / '+m.total+'</text></svg><ul class="chart-legend">'+legend+'</ul></div><p class="chart-note">环图按完成方式划分，中心数字为任务完成率。</p></figure>';
+  return '<figure class="report-chart completion-chart"><figcaption>任务完成情况 <small>按完成方式划分</small></figcaption><div class="donut-layout"><svg viewBox="0 0 160 160" role="img" aria-label="已完成 '+brief.completed+' 项，共 '+m.total+' 项，完成率 '+percent+'%">'+ring+'<text x="80" y="79" text-anchor="middle" class="donut-value">'+percent+'%</text><text x="80" y="100" text-anchor="middle" class="donut-label">已完成 '+brief.completed+' / '+m.total+'</text></svg><ul class="chart-legend">'+legend+'</ul></div><p class="chart-note">环图按完成方式划分，中心数字为任务完成率。</p></figure>';
 }
 export function delayChart(m:Model,path:(id:any,fallback:string)=>string) {
   const rows=m.lateTasks.slice(0,5),max=Math.max(1,...rows.map((t:any)=>t.lateDays||0));

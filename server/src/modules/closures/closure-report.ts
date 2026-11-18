@@ -163,7 +163,8 @@ export function renderClosureReport(r:any,options:{embedded?:boolean}={}) {
   // 数字重点条：领导一眼扫结论，句子只留一句，构成不写成段落。
   const counts=m.counts;
   const statTile=(label:string,value:string,note:string,tone='')=>'<div class="stat-tile'+(tone?' stat-'+tone:'')+'"><span class="stat-label">'+e(label)+'</span><strong class="stat-value">'+e(value)+'</strong>'+(note?'<span class="stat-note">'+e(note)+'</span>':'')+'</div>';
-  const statTiles=[statTile('任务完成',brief.completed+' / '+m.total,''),statTile('按期完成',(counts.ontime||0)+' 项',counts.ontime?'':'无一项按期',counts.ontime?'':'risk')];
+  const onSchedule=(counts.early||0)+(counts.ontime||0);
+  const statTiles=[statTile('任务完成',brief.completed+' / '+m.total,''),statTile('按期完成',onSchedule+' 项',counts.early?'含提前完成 '+counts.early+' 项':onSchedule?'':'无一项按期',onSchedule?'':'risk')];
   if(counts.unfinished)statTiles.push(statTile('未完成',counts.unfinished+' 项','','risk'));
   if(counts.late)statTiles.push(statTile('延期完成',counts.late+' 项',m.lateTasks[0]?.lateDays?'最长 '+m.lateTasks[0].lateDays+' 天':'','risk'));
   if(counts.unknown)statTiles.push(statTile('日期待核实',counts.unknown+' 项','','warn'));

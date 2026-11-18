@@ -10,6 +10,8 @@ const paragraph = (v: any) => `<p class="para narrative">${e(v)}</p>`;
 const table = (headers: string[], rows: string[][], className='') => `<div class="tbl-wrap"><table class="tbl ${className}"><thead><tr>${headers.map(h=>`<th>${e(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(row=>`<tr>${row.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
 const section = (id: string,num: string,title: string,body: string) => `<section class="sec" id="${id}"><div class="sec-head"><span class="sec-num">${num}</span><h2 class="sec-title">${title}</h2></div>${body}</section>`;
 const extraStyle = `
+.task-status{display:inline-block;max-width:100%;box-sizing:border-box;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;line-height:1.6;white-space:normal;overflow-wrap:anywhere;background:#f0f3f6;color:#526175;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.task-status.early{background:#e8f4f0;color:#1c7668}.task-status.ontime{background:#e8f4ed;color:#37785e}.task-status.late{background:#fff0f2;color:#b83c4b}.task-status.supplement{background:#edf3fc;color:#42669a}.task-status.unknown{background:#fff5e6;color:#99601b}
 td,th{overflow-wrap:anywhere}.file-link{border:0;background:none;color:var(--accent);text-decoration:underline;cursor:pointer;font:inherit;text-align:left}
 figure{margin:0}.completion-chart figcaption{font-weight:700;color:var(--ink);font-size:16px}.completion-chart figcaption small{display:none}
 .donut-layout{display:flex;flex-wrap:wrap;align-items:center;gap:24px;margin:18px 0}.donut-layout svg{width:140px;flex:none}.donut-value{font:bold 27px Georgia;fill:var(--ink)}.donut-label{font:11px sans-serif;fill:var(--muted)}
@@ -65,7 +67,8 @@ export function renderClosureReportV2(r: any, options: {embedded?:boolean} = {})
   };
   const taskRows=reportHierarchy((d.tasks||[]).filter(t=>t.status!=='cancelled')).map(({task,depth})=>{
     const leaf=byId.get(String(task.id));
-    return [`<span style="padding-left:${Math.min(depth,8)*16}px" class="${leaf?'':'task-parent'}">${e(task.title)}</span>`,day(leaf?.latestWorkDate),day(task.due_at),day(task.completed_at),completion(task),leaf?e(leaf.label):'见下属任务'];
+    const status=leaf?`<span class="task-status ${e(leaf.kind)}">${e(leaf.label)}</span>`:'见下属任务';
+    return [`<span style="padding-left:${Math.min(depth,8)*16}px" class="${leaf?'':'task-parent'}">${e(task.title)}</span>`,day(leaf?.latestWorkDate),day(task.due_at),day(task.completed_at),completion(task),status];
   });
   const progressGroups=new Map<string,any[]>();
   for(const u of m.updates||[]) {
@@ -79,7 +82,7 @@ export function renderClosureReportV2(r: any, options: {embedded?:boolean} = {})
     return `<article class="record"><header><strong>${e(task?.title)}</strong><span>工作日期：${day(u.work_date)}</span><span>填报人：${e(u.author_name)}</span><span>填报日期：${[...new Set(records.map(r=>day(r.created_at)))].join('、')}</span></header>${paragraph(u.content)}${records.length>1?`<p class="note">相同内容合并展示，共 ${records.length} 条原始记录。</p>`:''}${u.status==='exempted'?`<p class="note">合理补填：${e(u.exempt_reason||'已确认')}</p>`:''}</article>`;
   }).join('');
   const materials=[...new Map<string,any>(m.assets.map(f=>[String(f.id),f])).values()];
-  const execution=overview+`<h3 class="sub-title">任务完成情况</h3>`+table(['任务','最后进展日期','计划截止','系统验收','完成情况','进度及异常说明'],taskRows,'completion-table')
+  const execution=overview+`<h3 class="sub-title">任务完成情况</h3><p class="note">提前天数按北京时间的系统验收日期与计划截止日期比较，按日历天计算。</p>`+table(['任务','最后进展日期','计划截止','系统验收','完成情况','进度及异常说明'],taskRows,'completion-table')
     +(progress?`<details class="completion-details"><summary>查看完成明细（${m.updates.length} 条原始记录）</summary>${progress}</details>`:'')
     +renderClosureWeeklyReports(d.weeklyReports, options.embedded)
     +`<h3 class="sub-title">质量与交付物情况</h3>`+(materials.length?table(['序号','交付物名称','类型'],materials.map((f,i)=>[String(i+1),assetLink(f),f.file_path?'文件':'链接'])):'<p class="note">未上传交付资料，具体成果见下文。</p>');

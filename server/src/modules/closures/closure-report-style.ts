@@ -21,7 +21,8 @@ small,.muted{font-size:12px;color:var(--muted)}
 .masthead{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:12px;color:var(--muted);margin-bottom:14px}
 .meta{display:flex;flex-wrap:wrap;gap:4px 18px;color:var(--muted);font-size:12px}
 .tag{display:inline-flex;align-items:center;padding:3px 8px;border-radius:4px;font-size:11px;font-weight:600;white-space:normal;background:#edf1f3;color:#4d616c}
-.approved,.tag.ontime,.tag.supplement{background:#eaf4ef;color:#215f4d}
+.approved,.tag.early,.tag.ontime,.tag.supplement{background:#eaf4ef;color:#215f4d}
+.tag.early{background:#e8f4f0;color:#1c7668}.tag.ontime{background:#e8f4ed;color:#37785e}
 .tag.supplement{background:#edf1f8;color:#4b648b}
 .tag.late,.voided,.rejected{background:#fff0f1;color:var(--red)}
 .tag.unknown,.tag.unfinished,.pending{background:#fff5e5;color:var(--amber)}

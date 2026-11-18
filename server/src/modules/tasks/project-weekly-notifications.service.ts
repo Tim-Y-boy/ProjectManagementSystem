@@ -1,4 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
+import { createHash } from 'crypto';
+import { config } from '../../config/config';
+import { FeishuNotifyService } from '../feishu/feishu-notify.service';
+import { buildNotifyCard } from '../feishu/notify-card';
+import { beijingDate, isWorkingDate } from './weekly-progress.rules';
 import { DataSource } from 'typeorm';
 import { ProjectWeeklyReportsService } from '../project-weekly-reports/project-weekly-reports.service';
 import { weekHasWorkdaySql } from '../holidays/work-calendar';
@@ -33,10 +39,39 @@ export function appendWeeklyLeaderSummary(card: Record<string, any>, lines: stri
   if (url) elements.push(markdown(`[查看全部项目周报](${url})`));
 }
 
-/** Serializes delivery and stores only successful weekly attachments; no independent leader message. */
+/** Leader attachments and management-group summaries have independent delivery receipts. */
 @Injectable()
 export class ProjectWeeklyNotificationsService {
-  constructor(private readonly db: DataSource, private readonly reports: ProjectWeeklyReportsService) {}
+  private readonly logger = new Logger(ProjectWeeklyNotificationsService.name);
+  constructor(private readonly db: DataSource, private readonly reports: ProjectWeeklyReportsService,
+    private readonly notify: FeishuNotifyService) {}
+
+  @Cron('0 1 9 * * *', { timeZone: 'Asia/Shanghai' })
+  async scheduledGroupSummary() {
+    try { await this.sendGroupSummary(); }
+    catch { this.logger.error('项目管理群周报汇总发送失败，将在下个工作日重试'); }
+  }
+
+  async sendGroupSummary(now = new Date()) {
+    const target = config.feishu.weeklyReportGroupChatId;
+    const base = String(process.env.WEB_FRONT_URL || process.env.APP_PUBLIC_URL || process.env.FRONTEND_URL || '').replace(/\/$/, '');
+    if (!target || !base) return { skipped: 'not_configured' };
+    const holidays = await this.db.query('SELECT date::text,kind FROM holidays');
+    if (!isWorkingDate(beijingDate(now), new Map(holidays.map((r: any) => [r.date, r.kind])))) return { skipped: 'rest_day' };
+    const kind = 'group:' + createHash('sha256').update(target).digest('hex').slice(0,24);
+    return this.withLeaderSummary(now, async pending => {
+      if (!pending) return { sent: false, skipped: 'already_sent_or_empty' };
+      const card = buildNotifyCard({ title: '项目周报汇总', template: 'blue', fields: [] });
+      const fallback: string[] = [];
+      for (const summary of pending.summaries) {
+        const lines = weeklyLeaderLines(summary, path => base + path);
+        appendWeeklyLeaderSummary(card, lines, `${base}/daily-report?tab=weekly&weekStart=${summary.weekStart}`);
+        fallback.push(...lines);
+      }
+      const result = await this.notify.sendGroupCard('project_weekly_summary', target, card, fallback.join('\n'));
+      return { sent: result.success };
+    }, kind);
+  }
 
   async reminderRows(now = new Date(), beforeDeadline = false) {
     const rows = await this.reports.notificationRows(now);
@@ -45,7 +80,7 @@ export class ProjectWeeklyNotificationsService {
       : row.overdue));
   }
 
-  async withLeaderSummary<T extends { sent?: boolean }>(now: Date, deliver: (summary: any | null) => Promise<T>): Promise<T | { skipped: string }> {
+  async withLeaderSummary<T extends { sent?: boolean }>(now: Date, deliver: (summary: any | null) => Promise<T>, kind = 'leader'): Promise<T | { skipped: string }> {
     const runner = this.db.createQueryRunner();
     await runner.connect();
     let locked = false;
@@ -62,8 +97,8 @@ export class ProjectWeeklyNotificationsService {
           AND r.week_start >= date_trunc('week',settings.enabled_at AT TIME ZONE 'Asia/Shanghai')::date
           AND ((r.week_start + 7)::timestamp + interval '9 hours') AT TIME ZONE 'Asia/Shanghai' <= $1::timestamptz
           AND NOT EXISTS (SELECT 1 FROM project_weekly_notification_deliveries d
-            WHERE d.kind='leader' AND d.week_start=r.week_start)
-        GROUP BY r.week_start ORDER BY r.week_start`, [now]);
+            WHERE d.kind=$2 AND d.week_start=r.week_start)
+        GROUP BY r.week_start ORDER BY r.week_start`, [now, kind]);
       const summaries = [];
       for (const row of pending) {
         const summary = await this.reports.summaryForLeader(row.week_start);
@@ -72,7 +107,7 @@ export class ProjectWeeklyNotificationsService {
       // One daily card carries every outstanding working week's summary after a holiday.
       const result = await deliver(summaries.length ? { ...summaries[0], summaries } : null);
       if (result.sent) for (const summary of summaries) {
-        await runner.query(`INSERT INTO project_weekly_notification_deliveries(kind,week_start) VALUES('leader',$1) ON CONFLICT DO NOTHING`, [summary.weekStart]);
+        await runner.query(`INSERT INTO project_weekly_notification_deliveries(kind,week_start) VALUES($2,$1) ON CONFLICT DO NOTHING`, [summary.weekStart, kind]);
       }
       return result;
     } finally {

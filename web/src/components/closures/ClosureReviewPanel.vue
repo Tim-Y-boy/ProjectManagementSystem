@@ -14,6 +14,21 @@ const mine=computed(()=>!auth.readOnly && props.request.status==='pending'&&w.va
 const target=shallowRef<number>();const reason=shallowRef('');const comment=shallowRef('');const saving=shallowRef(false);const showTransfer=shallowRef(false);
 const candidates=computed(()=>props.request.reviewerCandidates?.filter((p:any)=>!p.readOnly && Number(p.id)!==Number(props.request.approver_id)&&Number(p.id)!==Number(props.request.requester_id)&&!w.value.reviews.some((r:any)=>Number(r.userId)===Number(p.id)))||[]);
 const labels:Record<string,string>={pending:'待审核',approved:'已通过',rejected:'已退回'};
+const historyRows = computed(() => (props.request.reviewHistory || []).flatMap((h: any) =>
+  (h.workflow?.events || []).map((event: any, index: number) => {
+    const reassigned = event.type === 'transfer' || event.type === 'reviewer_replaced';
+    const actions: Record<string, string> = {
+      approved: '通过', rejected: '退回', final_approved: '通过', final_rejected: '退回',
+    };
+    return {
+      key: `${h.id}-${index}`,
+      at: event.at,
+      reviewer: reassigned ? event.fromName || '—' : event.name || (event.type?.startsWith('final_') ? '总经理' : '—'),
+      action: reassigned ? `${event.type === 'transfer' ? '转交给' : '更换为'}${event.toName || '其他审核人'}` : actions[event.type] || '审核操作',
+      comment: (reassigned ? event.reason : event.comment) || '—',
+    };
+  }),
+).sort((a: any, b: any) => String(a.at || '').localeCompare(String(b.at || ''))));
 async function decide(approve:boolean){
   if(!comment.value.trim()){ElMessage.warning('请填写审核意见');return;}
   saving.value=true;
@@ -43,7 +58,15 @@ async function transfer(){
       <el-input v-model="comment" type="textarea" :autosize="{minRows:3,maxRows:8}" maxlength="4000" show-word-limit placeholder="请填写核验结果与审核意见" />
       <div class="review-buttons"><el-button v-if="w.version!==3" :disabled="saving" @click="showTransfer=true">转交审核</el-button><el-button type="danger" plain :loading="saving" @click="decide(false)">退回</el-button><el-button type="primary" :loading="saving" @click="decide(true)">通过审核</el-button></div>
     </div>
-    <details v-if="request.reviewHistory?.length"><summary>审核与转交历史</summary><div v-for="h in request.reviewHistory" :key="h.id" class="history-entry"><strong>申请 #{{ h.id }}</strong><div v-for="(event,i) in h.workflow?.events||[]" :key="i">{{ formatBeijingTime(event.at) }} · {{ event.type==='transfer'||event.type==='reviewer_replaced'?`${event.fromName} ${event.type==='transfer'?'转交给':'替换为'} ${event.toName}：${event.reason}`:`${event.name||'总经理'} · ${event.type.includes('rejected')?'退回':'通过'}：${event.comment}` }}</div></div></details>
+    <details v-if="historyRows.length">
+      <summary>历史审核记录</summary>
+      <el-table :data="historyRows" row-key="key" size="small">
+        <el-table-column label="时间" min-width="160"><template #default="{ row }">{{ row.at ? formatBeijingTime(row.at) : '—' }}</template></el-table-column>
+        <el-table-column prop="reviewer" label="审核人" min-width="90" />
+        <el-table-column prop="action" label="操作" min-width="120" />
+        <el-table-column prop="comment" label="意见" min-width="180" />
+      </el-table>
+    </details>
     <el-dialog v-model="showTransfer" title="转交审核" width="min(520px,94vw)" append-to-body>
       <el-form label-position="top"><el-form-item label="接收人" required><el-select v-model="target" filterable placeholder="选择实际负责审核的人员" style="width:100%"><el-option v-for="p in candidates" :key="p.id" :value="Number(p.id)" :label="p.name" /></el-select></el-form-item><el-form-item label="转交原因" required><el-input v-model="reason" type="textarea" :rows="3" maxlength="2000" show-word-limit /></el-form-item></el-form>
       <template #footer><el-button @click="showTransfer=false">取消</el-button><el-button type="primary" :loading="saving" @click="transfer">确认转交</el-button></template>
